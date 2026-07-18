@@ -1,8 +1,6 @@
 // ==UserScript==
 // @name         Twitch - Disable automatic video downscale
 // @namespace    CommanderRoot
-// @copyright    CommanderRoot
-// @license      Unlicense
 // @version      1.3.0
 // @description  Disables the automatic downscaling of Twitch streams while tabbed away
 // @author       Taizun, CommanderRoot
@@ -11,6 +9,11 @@
 // @match        https://player.twitch.tv/*
 // @grant        none
 // @run-at       document-start
+// @homepageURL  https://github.com/SkeletonTM/twitch-no-downscale
+// @supportURL   https://github.com/SkeletonTM/twitch-no-downscale/issues
+// @updateURL    https://raw.githubusercontent.com/SkeletonTM/twitch-no-downscale/main/twitch-no-downscale.user.js
+// @downloadURL  https://raw.githubusercontent.com/SkeletonTM/twitch-no-downscale/main/twitch-no-downscale.user.js
+// @license      Unlicense
 // ==/UserScript==
 
 "use strict";
@@ -23,7 +26,6 @@ const startupQuality = 'source'; // Quality to set on page load: 'source' | 'bes
 
 // Code
 if (doOnlySetting === false) {
-  // Try to trick the site into thinking it's never hidden
   try {
     Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: false });
     Object.defineProperty(document, 'webkitVisibilityState', { value: 'visible', writable: false });
@@ -37,13 +39,9 @@ if (doOnlySetting === false) {
   let lastVideoPlaying = false;
   let firstActivation = true;
 
-  // visibilitychange events are captured and stopped
   document.addEventListener('visibilitychange', function (e) {
-    // Allow the first hidden→visible through (prevents black screen on new tab)
-    // Block all subsequent visibility changes
     if (document.hidden === false && firstActivation) {
       firstActivation = false;
-      // Allow propagation to prevent black screen when a stream was opened in a new tab
     } else {
       e.stopImmediatePropagation();
     }
@@ -51,7 +49,6 @@ if (doOnlySetting === false) {
       didInitialPlay = true;
     }
 
-    // Try to play the video (feature-detect, not browser-detect)
     const canPlayVideo = typeof HTMLVideoElement !== 'undefined' && typeof HTMLVideoElement.prototype.play === 'function';
     if (canPlayVideo) {
       if (document.hidden === true) {
@@ -90,5 +87,4 @@ function setQualitySettings() {
   }
 }
 
-// Set quality once on page load — never overwrite user's manual choice
 setQualitySettings();
