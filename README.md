@@ -1,28 +1,28 @@
 # Twitch — Disable automatic video downscale
 
-**v1.3.0** — Предотвращает автоматическое понижение качества Twitch при сворачивании вкладки.
+**v1.3.0** — Prevents Twitch from downscaling video when the tab is in the background.
 
-**[Установить](https://raw.githubusercontent.com/SkeletonTM/twitch-no-downscale/main/twitch-no-downscale.user.js)** — автообновление через @updateURL.
+**[Install](https://raw.githubusercontent.com/SkeletonTM/twitch-no-downscale/main/twitch-no-downscale.user.js)**
 
-Оригинал: [CommanderRoot/Taizun на GreasyFork](https://greasyfork.org/en/scripts/383093-twitch-disable-automatic-video-downscale).
+Original: [CommanderRoot/Taizun on GreasyFork](https://greasyfork.org/en/scripts/383093-twitch-disable-automatic-video-downscale).
 
 ---
 
-## Что исправлено в v1.3.0
+## Changes in v1.3.0
 
-- **Обёрнут в try/catch** — если `Object.defineProperty` не срабатывает, не падает молча
-- **`document.hidden` фризится** — Twitch не может читать его напрямую
-- **Первый `hidden→visible` пропускается** — нет чёрного экрана при открытии в новой вкладке
-- **Cross-browser** — работает в Firefox/Safari, не только Chrome
-- **Не перезатирает ручной выбор качества** — `setQualitySettings` вызывается только при старте
+- **try/catch around `Object.defineProperty`** — doesn't fail silently anymore
+- **`document.hidden` is frozen** — Twitch can't poll it directly
+- **First `hidden→visible` allowed through** — no more black screen on new tab opens
+- **Cross-browser** — works in Firefox/Safari, not just Chrome
+- **Doesn't override manual quality selection** — `setQualitySettings` only called on page load
 
-## Настройка
+## Config
 
 ```js
-const doOnlySetting = false;  // true — отключить фризинг, только localStorage
-const startupQuality = 'source';  // качество при старте; '' — не трогать
+const doOnlySetting = false;  // true = skip freezing, only set localStorage
+const startupQuality = 'source';  // quality on page load; '' = don't touch quality
 ```
 
-## Лицензия
+## License
 
 Unlicense.
