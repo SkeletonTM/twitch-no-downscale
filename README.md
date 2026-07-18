@@ -2,7 +2,11 @@
 
 **v1.3.0** — Улучшенная версия скрипта, который предотвращает автоматическое понижение качества стримов Twitch при сворачивании вкладки.
 
-**Оригинал:** [CommanderRoot/Taizun](https://greasyfork.org/en/scripts/383093-twitch-disable-automatic-video-downscale)
+Установить за 1 клик: ➡️ **[twitch-no-downscale.user.js](https://raw.githubusercontent.com/SkeletonTM/twitch-no-downscale/main/twitch-no-downscale.user.js)**
+
+Автообновление через `@updateURL` — Tampermonkey сам проверяет новые версии раз в сутки.
+
+**Оригинал:** [CommanderRoot/Taizun на GreasyFork](https://greasyfork.org/en/scripts/383093-twitch-disable-automatic-video-downscale)
 
 ---
 
@@ -16,15 +20,16 @@
 
 ## Установка
 
-### Быстрая (рекомендуется)
+Tampermonkey / Violentmonkey сам откроет диалог установки при переходе по ссылке:
 
-Перейти по ссылке — Tampermonkey / Violentmonkey сам предложит установить:
+### ➡️ **[Установить v1.3.0](https://raw.githubusercontent.com/SkeletonTM/twitch-no-downscale/main/twitch-no-downscale.user.js)**
 
-**[Установить v1.3.0](https://raw.githubusercontent.com/SkeletonTM/twitch-no-downscale/main/twitch-no-downscale.user.js)**
+> Скрипт настроен на автообновление — Tampermonkey сам проверяет новую версию раз в сутки.
+> Если я выпущу обновление — оно подтянется автоматически.
 
-### GreasyFork
+### GreasyFork (оригинал)
 
-Оригинал на GreasyFork: https://greasyfork.org/en/scripts/383093-twitch-disable-automatic-video-downscale
+https://greasyfork.org/en/scripts/383093-twitch-disable-automatic-video-downscale
 
 ---
 
@@ -48,16 +53,16 @@
 | Проблема | В оригинале | В v1.3.0 |
 |---|---|---|
 | **`Object.defineProperty` падает молча** | Без try/catch. Если не срабатывает — весь блок тихо сгорает | Обёрнут в try/catch — graceful degradation с warning в консоль |
-| **`document.hidden` не заморожен** | `visibilityState` замокирован, но `hidden` возвращал реальное значение → Twitch мог читать его напрямую | `hidden` тоже фризится |
-| **Первый visibilitychange — чёрный экран** | Мёртвый guard (`initialHidden` всегда false) → `stopImmediatePropagation` на каждый чих, включая самый первый | `firstActivation` — первый `hidden→visible` пропускается (чёрного экрана нет), все последующие блокируются |
-| **Не работает в Firefox/Safari** | Проверка `typeof chrome` → playVideo() запускался только на Chromium | `canPlayVideo` — проверка `HTMLVideoElement.prototype.play`, работает везде |
-| **`popstate` не ловит смену канала** | `window.addEventListener('popstate')` — срабатывает только на back/forward, не на channel switch | `setQualitySettings` вызывается только при старте, чтобы не перезатирать ручной выбор качества |
+| **`document.hidden` не заморожен** | `visibilityState` замокирован, но `hidden` возвращал реальное значение — Twitch мог читать его напрямую | `hidden` тоже фризится |
+| **Первый visibilitychange — чёрный экран** | Мёртвый guard (`initialHidden` всегда false) — `stopImmediatePropagation` на каждый чих, включая самый первый | `firstActivation` — первый `hidden→visible` пропускается (чёрного экрана нет), все последующие блокируются |
+| **Не работает в Firefox/Safari** | Проверка `typeof chrome` — `playVideo()` запускался только на Chromium | `canPlayVideo` — проверка `HTMLVideoElement.prototype.play`, работает везде |
+| **popstate не ловит смену канала** | `window.addEventListener('popstate')` — срабатывает только на back/forward, не на channel switch | `setQualitySettings` вызывается только при старте, чтобы не перезатирать ручной выбор качества |
 | **Хардкод 1440p60** | `{"default":"1440p60"}` + `bitrate 9840720` — не соответствовало мониторам 1080p | `startupQuality` с дефолтом `'source'` — Twitch сам выбирает максимальное доступное |
 
 ### Что не изменилось
 
 - `@run-at document-start` — перехват до инициализации Twitch
-- `capture phase` listener — перехват `visibilitychange` до того, как его увидит Twitch
+- `capture phase` listener — перехват visibilitychange до того, как его увидит Twitch
 - `@grant none` — никаких лишних разрешений
 - `doOnlySetting` — опция отключить фризинг, оставив только запись качества
 
