@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitch - Disable automatic video downscale
 // @namespace    CommanderRoot
-// @version      1.3.1
+// @version      1.3.2
 // @description  Disables the automatic downscaling of Twitch streams while tabbed away
 // @author       Taizun, CommanderRoot, SkeletonTM
 // @match        https://www.twitch.tv/*
@@ -46,8 +46,21 @@ if (doOnlySetting === false) {
   }
 
   let didInitialPlay = false;
-  let lastVideoPlaying = false;
   let firstActivation = true;
+
+  function getVideo() {
+    const videos = document.getElementsByTagName('video');
+    return videos.length > 0 ? videos[0] : null;
+  }
+
+  function playVideo() {
+    const video = getVideo();
+    if (!video || video.ended) return;
+    // Always try to resume play() when the visibility event fires;
+    // the browser ignores redundant play() calls on a non-paused video.
+    video.play().catch(() => {});
+    didInitialPlay = true;
+  }
 
   document.addEventListener('visibilitychange', function (e) {
     if (firstActivation) {
@@ -56,27 +69,11 @@ if (doOnlySetting === false) {
       e.stopImmediatePropagation();
     }
 
-    const canPlayVideo = typeof HTMLVideoElement !== 'undefined' && typeof HTMLVideoElement.prototype.play === 'function';
-    if (canPlayVideo) {
-      const videos = document.getElementsByTagName('video');
-      if (videos.length > 0) {
-        lastVideoPlaying = !videos[0].paused && !videos[0].ended;
-        if (!videos[0].ended) {
-          playVideo();
-        }
-      }
+    const video = getVideo();
+    if (video && !video.ended) {
+      playVideo();
     }
   }, true);
-
-  function playVideo() {
-    const videos = document.getElementsByTagName('video');
-    if (videos.length > 0) {
-      if ((didInitialPlay === false || lastVideoPlaying === true) && !videos[0].ended) {
-        videos[0].play().catch(() => {});
-        didInitialPlay = true;
-      }
-    }
-  }
 }
 
 function setQualitySettings() {
