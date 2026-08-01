@@ -1,6 +1,6 @@
 # Twitch — Disable automatic video downscale
 
-**v1.3.0** — Prevents Twitch from downscaling video when the tab is in the background.
+**v1.3.3** — Prevents Twitch from downscaling video when the tab is in the background.
 
 **[Install](https://raw.githubusercontent.com/SkeletonTM/twitch-no-downscale/main/twitch-no-downscale.user.js)**
 
@@ -8,8 +8,17 @@ Source: [GitHub](https://github.com/SkeletonTM/twitch-no-downscale) · Original:
 
 ---
 
-## Changes in v1.3.0
+## Changes
 
+### v1.3.3
+- **Removed SPA re-apply** — quality is set once on page load only, so manual quality selection is never overwritten
+- **Dropped dead `didInitialPlay` state** — `playVideo()` no longer tracks unused flags
+
+### v1.3.1
+- **Freeze on `Document.prototype`** with fallback to `document` instance — works in modern browsers where instance-level `defineProperty` is silently ignored
+- **`source`/`best` → `chunked` remap** — Twitch's `localStorage` value for Source quality is `chunked`; writing `source` silently falls back to `auto`
+
+### v1.3.0
 - **try/catch around `Object.defineProperty`** — doesn't fail silently anymore
 - **`document.hidden` is frozen** — Twitch can't poll it directly
 - **First `hidden→visible` allowed through** — no more black screen on new tab open

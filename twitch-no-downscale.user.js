@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitch - Disable automatic video downscale
 // @namespace    CommanderRoot
-// @version      1.3.2
+// @version      1.3.3
 // @description  Disables the automatic downscaling of Twitch streams while tabbed away
 // @author       Taizun, CommanderRoot, SkeletonTM
 // @match        https://www.twitch.tv/*
@@ -45,7 +45,6 @@ if (doOnlySetting === false) {
     }
   }
 
-  let didInitialPlay = false;
   let firstActivation = true;
 
   function getVideo() {
@@ -59,7 +58,6 @@ if (doOnlySetting === false) {
     // Always try to resume play() when the visibility event fires;
     // the browser ignores redundant play() calls on a non-paused video.
     video.play().catch(() => {});
-    didInitialPlay = true;
   }
 
   document.addEventListener('visibilitychange', function (e) {
@@ -76,6 +74,9 @@ if (doOnlySetting === false) {
   }, true);
 }
 
+// Set quality once on page load. Twitch persists this in localStorage and
+// applies it on channel switches itself; re-applying on navigation would
+// overwrite the user's manual quality choice.
 function setQualitySettings() {
   if (!startupQuality) return;
   try {
@@ -88,25 +89,6 @@ function setQualitySettings() {
   } catch (e) {
     console.warn('[twitch-no-downscale] setQualitySettings failed:', e);
   }
-}
-
-// Re-apply quality settings on SPA channel navigation
-function onNavigate() {
-  setTimeout(setQualitySettings, 500);
-}
-
-if (typeof window !== 'undefined') {
-  if (window.navigation) {
-    window.navigation.addEventListener('navigatesuccess', onNavigate);
-  }
-  const origPushState = history.pushState;
-  if (typeof origPushState === 'function') {
-    history.pushState = function (...args) {
-      origPushState.apply(this, args);
-      onNavigate();
-    };
-  }
-  window.addEventListener('popstate', onNavigate);
 }
 
 setQualitySettings();
