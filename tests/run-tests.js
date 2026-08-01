@@ -193,7 +193,7 @@ test('3c. uninitialized element (readyState 0) skipped', () => {
 });
 
 // 4. stopImmediatePropagation must NOT be used (no global event blocking).
-test('4. no stopImmediatePropagation on visibilitychange', () => {
+test('4. no stopImmediatePropagation on visibilitychange (incl. repeated calls)', () => {
   const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 } });
   const doc = makeDocument([video]);
   const consoleMock = makeConsole();
@@ -201,12 +201,19 @@ test('4. no stopImmediatePropagation on visibilitychange', () => {
 
   let blocked = false;
   const spy = { stopImmediatePropagation() { blocked = true; } };
+  // First dispatch
   triggerVisibilityChange(doc, spy);
-  assert(blocked === false, 'other listeners must not be blocked');
+  assert(blocked === false, 'other listeners must not be blocked on first dispatch');
+  // Repeated dispatch must behave identically
+  triggerVisibilityChange(doc, spy);
+  assert(blocked === false, 'other listeners must not be blocked on repeated dispatch');
 });
 
-// 5. Listener registered exactly once, capture phase.
-test('5. visibilitychange listener registered once (capture)', () => {
+// 5. Listener registered exactly once per script execution, capture phase.
+// NOTE: the userscript is designed to run once per document load (injected
+// once at document-start by the userscript manager); this test asserts one
+// registration per execution, not protection against double injection.
+test('5. visibilitychange listener registered once per script execution (capture)', () => {
   const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 } });
   const doc = makeDocument([video]);
   const consoleMock = makeConsole();

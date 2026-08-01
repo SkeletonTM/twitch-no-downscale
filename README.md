@@ -1,6 +1,6 @@
 # Twitch — Disable automatic video downscale
 
-**v1.4.0** — Prevents Twitch from downscaling video when the tab is in the background.
+**v1.4.1** — Prevents Twitch from downscaling video when the tab is in the background.
 
 **[Install](https://raw.githubusercontent.com/SkeletonTM/twitch-no-downscale/main/twitch-no-downscale.user.js)**
 
@@ -16,13 +16,16 @@ It also writes a one-time quality hint to `localStorage` on page load.
 
 ## Changes
 
+### v1.4.1
+- **Docs** — toned down claims about player selection, `hasFocus()`, and legacy `localStorage` keys to match the actual evidence level (see Known limitations)
+
 ### v1.4.0
 - **Manual pause is preserved** — `play()` is only called on videos that are *already playing*; a video the user paused is never resumed. (The public API cannot distinguish a manual pause from one caused by the browser/Twitch — both report `paused === true` — so the script takes the conservative route and never touches a paused video.)
-- **Reliable player selection** — the active `<video>` is picked by visibility (non-zero area) and playable state (`readyState > 0`, not `ended`), largest visible element wins; `videos[0]` is no longer trusted blindly (ads, stale elements, hidden previews)
+- **Best-effort active player selection** — the active `<video>` is picked by visibility (non-zero area) and playable state (`readyState > 0`, not `ended`), largest visible element wins; `videos[0]` is no longer trusted blindly (ads, stale elements, hidden previews). This is a heuristic, not a guarantee: when an ad and the stream are visible at the same time, the largest element wins and the main stream is not guaranteed to be chosen
 - **No more `stopImmediatePropagation()`** — the global capture-phase event blocking is gone; other scripts and extensions receive `visibilitychange` normally (the freeze alone prevents downscale)
-- **Removed `hasFocus()` override** — no evidence the current Twitch player uses it for downscale; overriding it affected the whole page
+- **Removed `hasFocus()` override** — the override was removed because it affected the whole page and its necessity for downscale prevention was not established
 - **Independent `defineProperty`** — each visibility property is applied and verified separately, so a failure in one does not leave a partially applied config; partial failure is logged
-- **Optimizations** — `getVideo()` is queried once per event, `Math.floor(Date.now())` dropped (`Date.now()` is already an integer), no polling, no listener duplication
+- **Optimizations** — `getVideo()` is queried once per event, `Math.floor(Date.now())` dropped (`Date.now()` is already an integer), no polling, one listener per script execution
 
 ### v1.3.3
 - **Removed SPA re-apply** — quality is set once on page load only, so manual quality selection is never overwritten
@@ -53,10 +56,16 @@ const startupQuality = 'source';  // quality on page load; '' = don't touch qual
 - any other value (e.g. `'1080p60'`, `'720p60'`) → stored as-is
 - an invalid value is stored verbatim; the player falls back to `auto` — no error is raised
 
+## Manual quality vs. `startupQuality`
+
+- A manual in-player quality choice is **not** overwritten on SPA navigation (channel switches): `setQualitySettings()` runs once on page load only.
+- On a **full page reload**, `startupQuality` is written again — this is expected behaviour of the current configuration and is required for the hint to survive a reload.
+- There is no mechanism that would restore or preserve the user's last manual choice across full reloads; the configured `startupQuality` always wins on load.
+
 ## Known limitations
 
-- **`startupQuality` is written on every page load.** This is by design: without it the hint would be lost after a full reload. It does *not* overwrite a manual in-player choice made *during* the session (Twitch persists that itself between channel switches); only a page reload re-applies the configured value.
-- **As of 2026 the desktop Twitch player (Amazon IVS) does not ship the legacy `localStorage` keys** (`video-quality`, `quality-bitrate`, `s-qs-ts`) — it stores its own preference keys (`amazon_ivs_device_config_*`). Writing the legacy keys is harmless (Twitch leaves them untouched) and they are still honoured by older player builds, but the one-time quality hint may be a no-op on the current player; the visibility freeze is the mechanism that actually prevents downscale.
+- **Video selection is a best-effort heuristic.** The active element is chosen by visibility (non-zero area), readiness (`readyState > 0`, not `ended`), and largest visible area. This is better than `videos[0]` but does not guarantee the main stream is chosen when an ad and the stream are visible simultaneously.
+- **Legacy `localStorage` keys are unvalidated on current Twitch.** The current desktop player may use separate Amazon IVS preference keys. The legacy keys (`video-quality`, `quality-bitrate`, `s-qs-ts`) have not been validated against a live player in this repository, so their effect may be a no-op on current Twitch builds. They are kept for compatibility with older player builds; the visibility freeze is the mechanism that actually prevents downscale.
 - **Manual pause vs. browser pause cannot be distinguished** via the public API, so a video paused by the browser (not the user) is also never auto-resumed — conservative by design.
 
 ## Tests
@@ -67,7 +76,9 @@ Automated behaviour tests live in [`tests/run-tests.js`](tests/run-tests.js) (pu
 node tests/run-tests.js
 ```
 
-Covers: manual-pause preservation, ended/uninitialized/hidden video skipping, multi-video selection (largest visible wins), no event blocking, single listener registration, `defineProperty` failure fallback + partial-failure logging, all `startupQuality` cases, and `doOnlySetting` mode.
+Covers: manual-pause preservation, ended/uninitialized/hidden video skipping, multi-video selection (largest visible wins), no event blocking, single listener per script execution, `defineProperty` failure fallback + partial-failure logging, all `startupQuality` cases, and `doOnlySetting` mode.
+
+> The userscript is designed to run once per document load (it is injected once at `document-start`). The listener test asserts one registration per script execution, not protection against double injection.
 
 ## License
 

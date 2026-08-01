@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitch - Disable automatic video downscale
 // @namespace    CommanderRoot
-// @version      1.4.0
+// @version      1.4.1
 // @description  Disables the automatic downscaling of Twitch streams while tabbed away
 // @author       Taizun, CommanderRoot, SkeletonTM
 // @match        https://www.twitch.tv/*
@@ -86,11 +86,12 @@ function getVideo() {
   return best;
 }
 
-// Keep the stream playing when visibility events fire. Only videos that are
-// ALREADY playing are nudged: distinguishing a manual pause from a pause
-// caused by the browser or Twitch is not possible via the public API (both
-// report paused === true), so the conservative route is taken and a paused
-// video is never resumed — a manual pause is always preserved.
+// Keep the stream playing when visibility events fire. The script never
+// resumes a paused video because the public API cannot distinguish a manual
+// pause from a browser- or Twitch-induced pause — both report paused === true.
+// Taking the conservative route (only nudging already-playing videos) means a
+// manual pause is always preserved; the cost is that a browser-induced pause
+// is not auto-resumed either.
 function playVideo() {
   const video = getVideo();
   if (!video || video.paused || video.ended) return;
@@ -99,6 +100,9 @@ function playVideo() {
   video.play().catch(() => {});
 }
 
+// The script is designed to run once per document load (injected once at
+// document-start by the userscript manager), so exactly one listener is
+// registered per execution.
 if (doOnlySetting === false) {
   freezeVisibility();
 
