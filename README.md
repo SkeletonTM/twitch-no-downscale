@@ -12,7 +12,7 @@ Source: [GitHub](https://github.com/SkeletonTM/twitch-no-downscale) · Original:
 
 The script freezes the [Page Visibility API](https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API) (`document.hidden`, `document.visibilityState`, `document.webkitVisibilityState`) so Twitch always believes the tab is visible and never drops the stream quality in the background. Each property is frozen independently with a verified fallback to the `document` instance, so a partial failure never leaves the page half-frozen and is always logged.
 
-It also writes a one-time quality hint to `localStorage` on page load.
+It also writes a quality hint to `localStorage` once per page load.
 
 ## Changes
 
