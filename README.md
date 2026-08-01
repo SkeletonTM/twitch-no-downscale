@@ -14,6 +14,9 @@ Source: [GitHub](https://github.com/SkeletonTM/twitch-no-downscale) · Original:
 - **Removed SPA re-apply** — quality is set once on page load only, so manual quality selection is never overwritten
 - **Dropped dead `didInitialPlay` state** — `playVideo()` no longer tracks unused flags
 
+### v1.3.2
+- **Cleanup** — extracted `getVideo()` helper, simplified `playVideo()`, added `.catch()` on `play()`
+
 ### v1.3.1
 - **Freeze on `Document.prototype`** with fallback to `document` instance — works in modern browsers where instance-level `defineProperty` is silently ignored
 - **`source`/`best` → `chunked` remap** — Twitch's `localStorage` value for Source quality is `chunked`; writing `source` silently falls back to `auto`
