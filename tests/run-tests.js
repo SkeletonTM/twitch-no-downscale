@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Tests for twitch-no-downscale.user.js (v1.4.3)
+ * Tests for twitch-no-downscale.user.js (v1.4.4)
  * Pure Node, no dependencies. Runs the userscript body inside a VM sandbox
  * with mocked DOM/Window and asserts behaviour.
  */
