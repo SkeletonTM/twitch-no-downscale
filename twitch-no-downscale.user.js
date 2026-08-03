@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitch - Disable automatic video downscale
 // @namespace    CommanderRoot
-// @version      1.4.3
+// @version      1.4.4
 // @description  Disables the automatic downscaling of Twitch streams while tabbed away
 // @author       Taizun, CommanderRoot, SkeletonTM
 // @match        https://www.twitch.tv/*
@@ -70,18 +70,24 @@ function freezeVisibility() {
 // positioned off-viewport still reports its full size. Only a rect that
 // actually intersects the viewport and has a non-hidden computed style
 // counts as visible.
-function isActuallyVisible(v) {
-  const rect = v.getBoundingClientRect();
+function isActuallyVisible(v, rect) {
   if (rect.width <= 0 || rect.height <= 0) return false;
   const vw = typeof window.innerWidth === 'number' ? window.innerWidth : Infinity;
   const vh = typeof window.innerHeight === 'number' ? window.innerHeight : Infinity;
-  if (rect.bottom <= 0 || rect.right <= 0) return false;
+  // Derive the far edges from top/left + size instead of reading rect.bottom /
+  // rect.right, so the check works on any rect-shaped object (DOMRect included).
+  if (rect.top + rect.height <= 0 || rect.left + rect.width <= 0) return false;
   // A zero-size viewport (reported by some platforms for minimized windows)
   // must not reject every video: only apply the far-edge check when the
   // viewport actually has a size.
   if (vh > 0 && rect.top >= vh) return false;
   if (vw > 0 && rect.left >= vw) return false;
-  const style = window.getComputedStyle ? window.getComputedStyle(v) : null;
+  // getComputedStyle is guarded: a patched or non-standard environment may
+  // throw, and a failed style read must not break the visibility listener.
+  let style = null;
+  try {
+    style = window.getComputedStyle ? window.getComputedStyle(v) : null;
+  } catch (e) { /* non-standard environment */ }
   if (style) {
     if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
   }
@@ -102,8 +108,8 @@ function getVideo() {
   for (let i = 0; i < videos.length; i++) {
     const v = videos[i];
     if (v.ended || v.readyState === 0) continue;
-    if (!isActuallyVisible(v)) continue;
     const rect = v.getBoundingClientRect();
+    if (!isActuallyVisible(v, rect)) continue;
     const area = rect.width * rect.height;
     if (area > bestArea) {
       bestArea = area;
@@ -156,8 +162,9 @@ function setQualitySettings() {
     const targetQuality = (startupQuality === 'source' || startupQuality === 'best') ? 'chunked' : startupQuality;
     const now = Date.now();
     window.localStorage.setItem('s-qs-ts', now);
-    // quality-bitrate is a legacy key whose effect on current players is
-    // unvalidated (see README "Known limitations"); '0' means no bitrate cap.
+    // quality-bitrate is a legacy key kept for compatibility; '0' is written
+    // as a no-bitrate-cap hint. Like the other legacy keys its effect on
+    // current players is unvalidated (see README "Known limitations").
     window.localStorage.setItem('quality-bitrate', '0');
     window.localStorage.setItem('video-quality', JSON.stringify({ default: targetQuality }));
   } catch (e) {
