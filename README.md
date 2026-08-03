@@ -10,7 +10,7 @@ Source: [GitHub](https://github.com/SkeletonTM/twitch-no-downscale) · Original:
 
 ## Replaces the original script
 
-This fork keeps the original script's `@name` and `@namespace`, so userscript managers treat it as the same script. Installing it over the GreasyFork original **replaces it**, and `@updateURL` then serves updates from this repository. Uninstall the original first if you want to keep both.
+This fork keeps the original script's `@name` and `@namespace`, so userscript managers treat it as the same script. Installing it over the GreasyFork original **replaces it**, and updates are then served from this repository. Uninstall the original first if you want to keep both.
 
 ## How it works
 
