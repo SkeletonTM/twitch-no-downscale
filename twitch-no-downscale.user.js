@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitch - Disable automatic video downscale
 // @namespace    CommanderRoot
-// @version      1.4.2
+// @version      1.4.3
 // @description  Disables the automatic downscaling of Twitch streams while tabbed away
 // @author       Taizun, CommanderRoot, SkeletonTM
 // @match        https://www.twitch.tv/*
@@ -76,7 +76,11 @@ function isActuallyVisible(v) {
   const vw = typeof window.innerWidth === 'number' ? window.innerWidth : Infinity;
   const vh = typeof window.innerHeight === 'number' ? window.innerHeight : Infinity;
   if (rect.bottom <= 0 || rect.right <= 0) return false;
-  if (rect.top >= vh || rect.left >= vw) return false;
+  // A zero-size viewport (reported by some platforms for minimized windows)
+  // must not reject every video: only apply the far-edge check when the
+  // viewport actually has a size.
+  if (vh > 0 && rect.top >= vh) return false;
+  if (vw > 0 && rect.left >= vw) return false;
   const style = window.getComputedStyle ? window.getComputedStyle(v) : null;
   if (style) {
     if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
@@ -121,8 +125,10 @@ function playVideo() {
   // play() on an already-playing video is a no-op; .catch() guards against
   // an unhandled rejection if the browser's autoplay policy intervenes.
   // Legacy engines may return undefined instead of a Promise — guard for it.
-  const p = video.play();
-  if (p && typeof p.catch === 'function') p.catch(() => {});
+  try {
+    const p = video.play();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch (e) { /* legacy engines may throw synchronously */ }
 }
 
 // The script is designed to run once per document load (injected once at
