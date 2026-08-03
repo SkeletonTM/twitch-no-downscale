@@ -1,6 +1,6 @@
 # Twitch — Disable automatic video downscale
 
-**v1.4.2** — Prevents Twitch from downscaling video when the tab is in the background.
+**v1.4.3** — Prevents Twitch from downscaling video when the tab is in the background.
 
 **[Install](https://raw.githubusercontent.com/SkeletonTM/twitch-no-downscale/main/twitch-no-downscale.user.js)**
 
@@ -19,6 +19,11 @@ The script freezes the [Page Visibility API](https://developer.mozilla.org/en-US
 It also writes a quality hint to `localStorage` once per page load.
 
 ## Changes
+
+### v1.4.3
+- **Zero-size viewport guard** — a minimized window reporting `0×0` no longer causes the player-selection heuristic to reject every video
+- **`play()` fully guarded** — engines that throw synchronously (legacy) can no longer break the `visibilitychange` listener
+- **Tests: 20 → 24** — added `display:none` and `opacity:0` computed-style cases, a zero-size viewport case, and a sync-throw `play()` case
 
 ### v1.4.2
 - **Hardened player selection** — a video must intersect the viewport and have a non-hidden computed style (`visibility`, `opacity`, `display`) to be considered; CSS-hidden and off-viewport elements no longer win over the real stream
@@ -88,7 +93,7 @@ Automated behaviour tests live in [`tests/run-tests.js`](tests/run-tests.js) (pu
 node tests/run-tests.js
 ```
 
-Covers: manual-pause preservation, ended/uninitialized/hidden/off-viewport video skipping, CSS-hidden selection, multi-video selection (largest visible wins), no event blocking, single listener per script execution, `defineProperty` production path + failure fallback + partial-failure logging, all `startupQuality` cases, `doOnlySetting` mode, zero-video pages, and `play()` returning `undefined`.
+Covers: manual-pause preservation, ended/uninitialized/hidden/off-viewport video skipping, CSS-hidden/`display:none`/`opacity:0` selection, zero-size viewport, multi-video selection (largest visible wins), no event blocking, single listener per script execution, `defineProperty` production path + failure fallback + partial-failure logging, all `startupQuality` cases, `doOnlySetting` mode, zero-video pages, `play()` returning `undefined`, and `play()` throwing synchronously.
 
 > The userscript is designed to run once per document load (it is injected once at `document-start`). The listener test asserts one registration per script execution, not protection against double injection.
 
