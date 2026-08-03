@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Tests for twitch-no-downscale.user.js (v1.4.0)
+ * Tests for twitch-no-downscale.user.js (v1.4.2)
  * Pure Node, no dependencies. Runs the userscript body inside a VM sandbox
  * with mocked DOM/Window and asserts behaviour.
  */
@@ -39,16 +39,27 @@ function makeStorage() {
 
 function makeVideo(opts) {
   const calls = [];
+  const r = opts.rect || { width: 0, height: 0 };
+  // Complete the rect so viewport-intersection checks have real numbers:
+  // default to a top-left-anchored box (top:0, left:0) unless overridden.
+  const rect = {
+    width: r.width || 0,
+    height: r.height || 0,
+    top: r.top !== undefined ? r.top : 0,
+    left: r.left !== undefined ? r.left : 0,
+    bottom: r.bottom !== undefined ? r.bottom : ((r.top !== undefined ? r.top : 0) + (r.height || 0)),
+    right: r.right !== undefined ? r.right : ((r.left !== undefined ? r.left : 0) + (r.width || 0)),
+  };
   return {
     id: opts.id || 'video',
     paused: !!opts.paused,
     ended: !!opts.ended,
     readyState: opts.readyState !== undefined ? opts.readyState : 4,
-    rect: opts.rect || { width: 0, height: 0 },
+    rect,
     playCalls: calls,
     play() {
       calls.push(this.id);
-      return Promise.resolve();
+      return opts.playResult !== undefined ? opts.playResult : Promise.resolve();
     },
     getBoundingClientRect() { return this.rect; },
   };
@@ -77,17 +88,20 @@ function runScript(body, { document, window, Document, console: consoleMock, rep
   return sandbox;
 }
 
-function makeDocument(videos, { preventExtensions = false } = {}) {
-  const listeners = [];
-  const doc = {
-    listeners,
-    getElementsByTagName(tag) {
-      if (tag !== 'video') return [];
-      return videos;
-    },
-    addEventListener(type, fn, capture) {
-      listeners.push({ type, fn, capture: !!capture });
-    },
+// The mock document must INHERIT from the mocked Document.prototype: in real
+// browsers the frozen props live on Document.prototype (configurable native
+// accessors), and the script's primary path is the prototype define. A plain
+// object literal never reads those getters, so every test would silently run
+// the instance-fallback branch instead of the production path.
+function makeDocument(videos, DocumentCtor, { preventExtensions = false } = {}) {
+  const ctor = DocumentCtor || makeDocumentCtor();
+  const doc = Object.create(ctor.prototype);
+  doc.listeners = [];
+  doc.getElementsByTagName = function (tag) {
+    return tag !== 'video' ? [] : videos;
+  };
+  doc.addEventListener = function (type, fn, capture) {
+    this.listeners.push({ type, fn, capture: !!capture });
   };
   if (preventExtensions) Object.preventExtensions(doc);
   return doc;
@@ -103,6 +117,10 @@ function makeDocumentCtor({ preventExtensions = false } = {}) {
 function makeConsole() {
   const warns = [];
   return { warns, warn: (...a) => warns.push(a.join(' ')), log() {}, error() {} };
+}
+
+function makeWindow(storage, extra = {}) {
+  return Object.assign({ localStorage: storage }, extra);
 }
 
 function triggerVisibilityChange(documentMock, eventSpy) {
@@ -130,11 +148,11 @@ function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed
 // 1. Manual pause is preserved: paused video must NOT get play() called.
 test('1. manual pause preserved (no play() on paused video)', () => {
   const video = makeVideo({ id: 'main', paused: true, rect: { width: 640, height: 360 } });
-  const doc = makeDocument([video]);
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
   const consoleMock = makeConsole();
   const storage = makeStorage();
-  const win = { localStorage: storage };
-  runScript(BODY, { document: doc, window: win, Document: makeDocumentCtor(), console: consoleMock });
+  runScript(BODY, { document: doc, window: makeWindow(storage), Document: ctor, console: consoleMock });
 
   const spy = { stopImmediatePropagation() { throw new Error('must not be called'); } };
   triggerVisibilityChange(doc, spy);
@@ -145,9 +163,10 @@ test('1. manual pause preserved (no play() on paused video)', () => {
 // 2. Ended video must never be played.
 test('2. ended video not played', () => {
   const video = makeVideo({ id: 'main', ended: true, rect: { width: 640, height: 360 } });
-  const doc = makeDocument([video]);
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
   const consoleMock = makeConsole();
-  runScript(BODY, { document: doc, window: { localStorage: makeStorage() }, Document: makeDocumentCtor(), console: consoleMock });
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
 
   triggerVisibilityChange(doc);
   assert(video.playCalls.length === 0, 'play() must not be called on ended video');
@@ -157,9 +176,10 @@ test('2. ended video not played', () => {
 test('3. multiple videos: visible active element wins over hidden first', () => {
   const hidden = makeVideo({ id: 'hidden', paused: false, rect: { width: 0, height: 0 } });
   const active = makeVideo({ id: 'active', paused: false, rect: { width: 1280, height: 720 } });
-  const doc = makeDocument([hidden, active]);
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([hidden, active], ctor);
   const consoleMock = makeConsole();
-  runScript(BODY, { document: doc, window: { localStorage: makeStorage() }, Document: makeDocumentCtor(), console: consoleMock });
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
 
   triggerVisibilityChange(doc);
   assert(hidden.playCalls.length === 0, 'hidden element must not be played');
@@ -170,9 +190,10 @@ test('3. multiple videos: visible active element wins over hidden first', () => 
 test('3b. multiple videos: larger visible element wins', () => {
   const ad = makeVideo({ id: 'ad', paused: false, rect: { width: 640, height: 360 } });
   const stream = makeVideo({ id: 'stream', paused: false, rect: { width: 1280, height: 720 } });
-  const doc = makeDocument([ad, stream]);
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([ad, stream], ctor);
   const consoleMock = makeConsole();
-  runScript(BODY, { document: doc, window: { localStorage: makeStorage() }, Document: makeDocumentCtor(), console: consoleMock });
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
 
   triggerVisibilityChange(doc);
   assert(ad.playCalls.length === 0, 'smaller element must not win');
@@ -183,41 +204,76 @@ test('3b. multiple videos: larger visible element wins', () => {
 test('3c. uninitialized element (readyState 0) skipped', () => {
   const uninit = makeVideo({ id: 'uninit', paused: false, readyState: 0, rect: { width: 1280, height: 720 } });
   const main = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 } });
-  const doc = makeDocument([uninit, main]);
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([uninit, main], ctor);
   const consoleMock = makeConsole();
-  runScript(BODY, { document: doc, window: { localStorage: makeStorage() }, Document: makeDocumentCtor(), console: consoleMock });
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
 
   triggerVisibilityChange(doc);
   assert(uninit.playCalls.length === 0, 'uninitialized element must be skipped');
   assert(main.playCalls.length === 1, 'initialized element must win');
 });
 
+// 3d. CSS-hidden element (visibility:hidden) with a large rect must NOT win.
+test('3d. CSS-hidden big element does not win over smaller visible one', () => {
+  const cssHidden = makeVideo({ id: 'css-hidden', paused: false, rect: { width: 1280, height: 720 } });
+  const visible = makeVideo({ id: 'visible', paused: false, rect: { width: 640, height: 360 } });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([cssHidden, visible], ctor);
+  const consoleMock = makeConsole();
+  const storage = makeStorage();
+  const win = makeWindow(storage, {
+    getComputedStyle(el) {
+      const hidden = el.id === 'css-hidden';
+      return { display: 'block', visibility: hidden ? 'hidden' : 'visible', opacity: '1' };
+    },
+  });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: consoleMock });
+
+  triggerVisibilityChange(doc);
+  assert(cssHidden.playCalls.length === 0, 'CSS-hidden element must not be played');
+  assert(visible.playCalls.length === 1, 'visible element must win over CSS-hidden one');
+});
+
+// 3e. Off-viewport element (negative coords, full size) must be skipped.
+test('3e. off-viewport element skipped', () => {
+  const off = makeVideo({ id: 'off-screen', paused: false, rect: { width: 1920, height: 1080, top: -9999, left: -9999 } });
+  const onScreen = makeVideo({ id: 'on-screen', paused: false, rect: { width: 1280, height: 720 } });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([off, onScreen], ctor);
+  const consoleMock = makeConsole();
+  const storage = makeStorage();
+  const win = makeWindow(storage, { innerWidth: 1600, innerHeight: 900 });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: consoleMock });
+
+  triggerVisibilityChange(doc);
+  assert(off.playCalls.length === 0, 'off-viewport element must be skipped');
+  assert(onScreen.playCalls.length === 1, 'on-screen element must win');
+});
+
 // 4. stopImmediatePropagation must NOT be used (no global event blocking).
 test('4. no stopImmediatePropagation on visibilitychange (incl. repeated calls)', () => {
   const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 } });
-  const doc = makeDocument([video]);
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
   const consoleMock = makeConsole();
-  runScript(BODY, { document: doc, window: { localStorage: makeStorage() }, Document: makeDocumentCtor(), console: consoleMock });
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
 
   let blocked = false;
   const spy = { stopImmediatePropagation() { blocked = true; } };
-  // First dispatch
   triggerVisibilityChange(doc, spy);
   assert(blocked === false, 'other listeners must not be blocked on first dispatch');
-  // Repeated dispatch must behave identically
   triggerVisibilityChange(doc, spy);
   assert(blocked === false, 'other listeners must not be blocked on repeated dispatch');
 });
 
 // 5. Listener registered exactly once per script execution, capture phase.
-// NOTE: the userscript is designed to run once per document load (injected
-// once at document-start by the userscript manager); this test asserts one
-// registration per execution, not protection against double injection.
 test('5. visibilitychange listener registered once per script execution (capture)', () => {
   const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 } });
-  const doc = makeDocument([video]);
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
   const consoleMock = makeConsole();
-  runScript(BODY, { document: doc, window: { localStorage: makeStorage() }, Document: makeDocumentCtor(), console: consoleMock });
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
 
   const vis = doc.listeners.filter(x => x.type === 'visibilitychange');
   assert(vis.length === 1, 'expected exactly one visibilitychange listener, got ' + vis.length);
@@ -226,12 +282,13 @@ test('5. visibilitychange listener registered once per script execution (capture
 
 // 6. Object.defineProperty failure on Document.prototype -> instance fallback works.
 test('6. prototype freeze fails, instance fallback succeeds', () => {
-  const doc = makeDocument([]);
+  const ctor = makeDocumentCtor({ preventExtensions: true });
+  const doc = makeDocument([], ctor);
   const consoleMock = makeConsole();
   runScript(BODY, {
     document: doc,
-    window: { localStorage: makeStorage() },
-    Document: makeDocumentCtor({ preventExtensions: true }),
+    window: makeWindow(makeStorage()),
+    Document: ctor,
     console: consoleMock,
   });
   assert(doc.hidden === false, 'instance fallback must freeze document.hidden');
@@ -241,27 +298,51 @@ test('6. prototype freeze fails, instance fallback succeeds', () => {
 
 // 6b. Both prototype and instance fail -> partial failure is logged, no throw.
 test('6b. full freeze failure logged, script does not crash', () => {
-  const doc = makeDocument([], { preventExtensions: true });
+  const ctor = makeDocumentCtor({ preventExtensions: true });
+  const doc = makeDocument([], ctor, { preventExtensions: true });
   const consoleMock = makeConsole();
   runScript(BODY, {
     document: doc,
-    window: { localStorage: makeStorage() },
-    Document: makeDocumentCtor({ preventExtensions: true }),
+    window: makeWindow(makeStorage()),
+    Document: ctor,
     console: consoleMock,
   });
   assert(consoleMock.warns.length === 1, 'expected partial-failure warning, got: ' + consoleMock.warns);
   assert(/partially failed/.test(consoleMock.warns[0]), 'warning must mention partial failure');
 });
 
+// 6c. PRODUCTION PATH: the mock document inherits from Document.prototype,
+// so the prototype define must succeed and the frozen getters must be read
+// through the prototype (no own props), exactly like a real browser.
+test('6c. prototype freeze succeeds (production path, no own props)', () => {
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([], ctor);
+  const consoleMock = makeConsole();
+  runScript(BODY, {
+    document: doc,
+    window: makeWindow(makeStorage()),
+    Document: ctor,
+    console: consoleMock,
+  });
+  assert(doc.hidden === false, 'hidden must be false via prototype getter');
+  assert(doc.visibilityState === 'visible', 'visibilityState must be visible via prototype getter');
+  assert(doc.webkitVisibilityState === 'visible', 'webkitVisibilityState must be visible');
+  assert(doc.webkitHidden === false, 'webkitHidden must be false');
+  assert(Object.getOwnPropertyDescriptor(doc, 'hidden') === undefined,
+    'hidden must live on Document.prototype, not on the document instance (production path)');
+  assert(consoleMock.warns.length === 0, 'no warning when prototype path succeeds');
+});
+
 // 7. localStorage quality keys.
 test('7a. startupQuality "" -> localStorage untouched', () => {
-  const doc = makeDocument([]);
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([], ctor);
   const consoleMock = makeConsole();
   const storage = makeStorage();
   runScript(BODY, {
     document: doc,
-    window: { localStorage: storage },
-    Document: makeDocumentCtor(),
+    window: makeWindow(storage),
+    Document: ctor,
     console: consoleMock,
     replace: { "const startupQuality = 'source';": "const startupQuality = '';" },
   });
@@ -269,23 +350,25 @@ test('7a. startupQuality "" -> localStorage untouched', () => {
 });
 
 test('7b. startupQuality "source" -> chunked remap', () => {
-  const doc = makeDocument([]);
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([], ctor);
   const consoleMock = makeConsole();
   const storage = makeStorage();
-  runScript(BODY, { document: doc, window: { localStorage: storage }, Document: makeDocumentCtor(), console: consoleMock });
+  runScript(BODY, { document: doc, window: makeWindow(storage), Document: ctor, console: consoleMock });
   assert(storage.getItem('video-quality') === JSON.stringify({ default: 'chunked' }), 'video-quality must be chunked');
   assert(storage.getItem('quality-bitrate') === '0', 'quality-bitrate must be 0');
   assert(/^\d+$/.test(storage.getItem('s-qs-ts')), 's-qs-ts must be a numeric timestamp');
 });
 
 test('7c. startupQuality "best" -> chunked remap', () => {
-  const doc = makeDocument([]);
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([], ctor);
   const consoleMock = makeConsole();
   const storage = makeStorage();
   runScript(BODY, {
     document: doc,
-    window: { localStorage: storage },
-    Document: makeDocumentCtor(),
+    window: makeWindow(storage),
+    Document: ctor,
     console: consoleMock,
     replace: { "const startupQuality = 'source';": "const startupQuality = 'best';" },
   });
@@ -293,13 +376,14 @@ test('7c. startupQuality "best" -> chunked remap', () => {
 });
 
 test('7d. startupQuality "1080p60" -> passthrough', () => {
-  const doc = makeDocument([]);
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([], ctor);
   const consoleMock = makeConsole();
   const storage = makeStorage();
   runScript(BODY, {
     document: doc,
-    window: { localStorage: storage },
-    Document: makeDocumentCtor(),
+    window: makeWindow(storage),
+    Document: ctor,
     console: consoleMock,
     replace: { "const startupQuality = 'source';": "const startupQuality = '1080p60';" },
   });
@@ -307,13 +391,14 @@ test('7d. startupQuality "1080p60" -> passthrough', () => {
 });
 
 test('7e. startupQuality invalid -> written verbatim (documented behaviour)', () => {
-  const doc = makeDocument([]);
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([], ctor);
   const consoleMock = makeConsole();
   const storage = makeStorage();
   runScript(BODY, {
     document: doc,
-    window: { localStorage: storage },
-    Document: makeDocumentCtor(),
+    window: makeWindow(storage),
+    Document: ctor,
     console: consoleMock,
     replace: { "const startupQuality = 'source';": "const startupQuality = 'not-a-quality';" },
   });
@@ -322,19 +407,41 @@ test('7e. startupQuality invalid -> written verbatim (documented behaviour)', ()
 
 // 8. doOnlySetting=true: freeze skipped, quality still set.
 test('8. doOnlySetting=true: no freeze, quality keys still written', () => {
-  const doc = makeDocument([]);
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([], ctor);
   const consoleMock = makeConsole();
   const storage = makeStorage();
   runScript(BODY, {
     document: doc,
-    window: { localStorage: storage },
-    Document: makeDocumentCtor(),
+    window: makeWindow(storage),
+    Document: ctor,
     console: consoleMock,
     replace: { "const doOnlySetting = false;": "const doOnlySetting = true;" },
   });
   assert(doc.hidden === undefined, 'freeze must be skipped when doOnlySetting=true');
   assert(storage.getItem('video-quality') === JSON.stringify({ default: 'chunked' }), 'quality must still be set');
   assert(doc.listeners.filter(x => x.type === 'visibilitychange').length === 0, 'no visibilitychange listener when doOnlySetting=true');
+});
+
+// 9. Zero videos on the page: the visibilitychange listener must not throw.
+test('9. no videos on page — listener does not throw', () => {
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([], ctor);
+  const consoleMock = makeConsole();
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc);
+  assert(true, 'listener ran without throwing when there are no videos');
+});
+
+// 10. Legacy engine: play() returns undefined, not a Promise — must not throw.
+test('10. play() returning undefined does not throw', () => {
+  const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 }, playResult: undefined });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
+  const consoleMock = makeConsole();
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc);
+  assert(video.playCalls.length === 1, 'play() must be called on the playing video');
 });
 
 // ---- summary -----------------------------------------------------------

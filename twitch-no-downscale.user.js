@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitch - Disable automatic video downscale
 // @namespace    CommanderRoot
-// @version      1.4.1
+// @version      1.4.2
 // @description  Disables the automatic downscaling of Twitch streams while tabbed away
 // @author       Taizun, CommanderRoot, SkeletonTM
 // @match        https://www.twitch.tv/*
@@ -36,12 +36,16 @@ function freezeVisibility() {
   const props = [
     ['visibilityState', 'visible'],
     ['webkitVisibilityState', 'visible'],
+    ['webkitHidden', false],
     ['hidden', false],
   ];
   const applied = [];
   const failed = [];
 
   for (const [name, value] of props) {
+    // configurable: true is deliberate: it lets a re-run of this script (or
+    // another userscript) redefine the property without throwing. Hardening
+    // to configurable: false would make double injection throw instead.
     const desc = { get: () => value, configurable: true };
     let ok = false;
     try {
@@ -61,6 +65,25 @@ function freezeVisibility() {
   }
 }
 
+// An element with a non-zero layout rect is not necessarily visible: CSS
+// visibility:hidden / opacity:0 / display:none keep layout, and an element
+// positioned off-viewport still reports its full size. Only a rect that
+// actually intersects the viewport and has a non-hidden computed style
+// counts as visible.
+function isActuallyVisible(v) {
+  const rect = v.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return false;
+  const vw = typeof window.innerWidth === 'number' ? window.innerWidth : Infinity;
+  const vh = typeof window.innerHeight === 'number' ? window.innerHeight : Infinity;
+  if (rect.bottom <= 0 || rect.right <= 0) return false;
+  if (rect.top >= vh || rect.left >= vw) return false;
+  const style = window.getComputedStyle ? window.getComputedStyle(v) : null;
+  if (style) {
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+  }
+  return true;
+}
+
 // Pick the main player <video>. A Twitch page can contain several video
 // elements (ad player, stale element left over from a channel switch, hidden
 // preview), and document order is not a reliable signal, so the element that
@@ -75,9 +98,9 @@ function getVideo() {
   for (let i = 0; i < videos.length; i++) {
     const v = videos[i];
     if (v.ended || v.readyState === 0) continue;
+    if (!isActuallyVisible(v)) continue;
     const rect = v.getBoundingClientRect();
     const area = rect.width * rect.height;
-    if (area <= 0) continue; // hidden or not laid out
     if (area > bestArea) {
       bestArea = area;
       best = v;
@@ -97,7 +120,9 @@ function playVideo() {
   if (!video || video.paused || video.ended) return;
   // play() on an already-playing video is a no-op; .catch() guards against
   // an unhandled rejection if the browser's autoplay policy intervenes.
-  video.play().catch(() => {});
+  // Legacy engines may return undefined instead of a Promise — guard for it.
+  const p = video.play();
+  if (p && typeof p.catch === 'function') p.catch(() => {});
 }
 
 // The script is designed to run once per document load (injected once at
@@ -125,6 +150,8 @@ function setQualitySettings() {
     const targetQuality = (startupQuality === 'source' || startupQuality === 'best') ? 'chunked' : startupQuality;
     const now = Date.now();
     window.localStorage.setItem('s-qs-ts', now);
+    // quality-bitrate is a legacy key whose effect on current players is
+    // unvalidated (see README "Known limitations"); '0' means no bitrate cap.
     window.localStorage.setItem('quality-bitrate', '0');
     window.localStorage.setItem('video-quality', JSON.stringify({ default: targetQuality }));
   } catch (e) {

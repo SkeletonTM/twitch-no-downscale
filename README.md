@@ -1,6 +1,6 @@
 # Twitch — Disable automatic video downscale
 
-**v1.4.1** — Prevents Twitch from downscaling video when the tab is in the background.
+**v1.4.2** — Prevents Twitch from downscaling video when the tab is in the background.
 
 **[Install](https://raw.githubusercontent.com/SkeletonTM/twitch-no-downscale/main/twitch-no-downscale.user.js)**
 
@@ -8,20 +8,31 @@ Source: [GitHub](https://github.com/SkeletonTM/twitch-no-downscale) · Original:
 
 ---
 
+## Replaces the original script
+
+This fork keeps the original script's `@name` and `@namespace`, so userscript managers treat it as the same script. Installing it over the GreasyFork original **replaces it**, and `@updateURL` then serves updates from this repository. Uninstall the original first if you want to keep both.
+
 ## How it works
 
-The script freezes the [Page Visibility API](https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API) (`document.hidden`, `document.visibilityState`, `document.webkitVisibilityState`) so Twitch always believes the tab is visible and never drops the stream quality in the background. Each property is frozen independently with a verified fallback to the `document` instance, so a partial failure never leaves the page half-frozen and is always logged.
+The script freezes the [Page Visibility API](https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API) (`document.hidden`, `document.webkitHidden`, `document.visibilityState`, `document.webkitVisibilityState`) so Twitch always believes the tab is visible and never drops the stream quality in the background. Each property is frozen independently with a verified fallback to the `document` instance, so a partial failure never leaves the page half-frozen and is always logged.
 
 It also writes a quality hint to `localStorage` once per page load.
 
 ## Changes
+
+### v1.4.2
+- **Hardened player selection** — a video must intersect the viewport and have a non-hidden computed style (`visibility`, `opacity`, `display`) to be considered; CSS-hidden and off-viewport elements no longer win over the real stream
+- **Frozen `document.webkitHidden`** (legacy Safari) in addition to the other visibility properties
+- **`play()` guard** — handles engines where `play()` returns `undefined` instead of a Promise
+- **Docs** — documented why `quality-bitrate: '0'` is written and why the frozen props stay `configurable: true`
+- **Tests: 15 → 20** — the mock document now inherits from `Document.prototype`, so the tests exercise the production freeze path instead of the instance fallback; added cases for CSS-hidden/off-viewport selection, zero videos, and `play()` returning `undefined`
 
 ### v1.4.1
 - **Docs** — toned down claims about player selection, `hasFocus()`, and legacy `localStorage` keys to match the actual evidence level (see Known limitations)
 
 ### v1.4.0
 - **Manual pause is preserved** — `play()` is only called on videos that are *already playing*; a video the user paused is never resumed. (The public API cannot distinguish a manual pause from one caused by the browser/Twitch — both report `paused === true` — so the script takes the conservative route and never touches a paused video.)
-- **Best-effort active player selection** — the active `<video>` is picked by visibility (non-zero area) and playable state (`readyState > 0`, not `ended`), largest visible element wins; `videos[0]` is no longer trusted blindly (ads, stale elements, hidden previews). This is a heuristic, not a guarantee: when an ad and the stream are visible at the same time, the largest element wins and the main stream is not guaranteed to be chosen
+- **Best-effort active player selection** — the active `<video>` is picked by visibility and playable state (`readyState > 0`, not `ended`), largest visible element wins; `videos[0]` is no longer trusted blindly (ads, stale elements, hidden previews). This is a heuristic, not a guarantee: when an ad and the stream are visible at the same time, the largest element wins and the main stream is not guaranteed to be chosen
 - **No more `stopImmediatePropagation()`** — the global capture-phase event blocking is gone; other scripts and extensions receive `visibilitychange` normally (the freeze alone prevents downscale)
 - **Removed `hasFocus()` override** — the override was removed because it affected the whole page and its necessity for downscale prevention was not established
 - **Independent `defineProperty`** — each visibility property is applied and verified separately, so a failure in one does not leave a partially applied config; partial failure is logged
@@ -64,9 +75,10 @@ const startupQuality = 'source';  // quality on page load; '' = don't touch qual
 
 ## Known limitations
 
-- **Video selection is a best-effort heuristic.** The active element is chosen by visibility (non-zero area), readiness (`readyState > 0`, not `ended`), and largest visible area. This is better than `videos[0]` but does not guarantee the main stream is chosen when an ad and the stream are visible simultaneously.
+- **Video selection is a best-effort heuristic.** The active element is chosen by viewport intersection, computed style (`display`/`visibility`/`opacity`), readiness (`readyState > 0`, not `ended`), and largest visible area. This is better than `videos[0]` but does not guarantee the main stream is chosen when an ad and the stream are visible simultaneously.
 - **Legacy `localStorage` keys are unvalidated on current Twitch.** The current desktop player may use separate Amazon IVS preference keys. The legacy keys (`video-quality`, `quality-bitrate`, `s-qs-ts`) have not been validated against a live player in this repository, so their effect may be a no-op on current Twitch builds. They are kept for compatibility with older player builds; the visibility freeze is the mechanism that actually prevents downscale.
 - **Manual pause vs. browser pause cannot be distinguished** via the public API, so a video paused by the browser (not the user) is also never auto-resumed — conservative by design.
+- **Firefox note (from upstream):** on Windows, Firefox users may additionally want `widget.windows.window_occlusion_tracking.enabled = false` in `about:config` if background tabs stutter — this is a browser-level occlusion optimisation, separate from Twitch's quality drop.
 
 ## Tests
 
@@ -76,7 +88,7 @@ Automated behaviour tests live in [`tests/run-tests.js`](tests/run-tests.js) (pu
 node tests/run-tests.js
 ```
 
-Covers: manual-pause preservation, ended/uninitialized/hidden video skipping, multi-video selection (largest visible wins), no event blocking, single listener per script execution, `defineProperty` failure fallback + partial-failure logging, all `startupQuality` cases, and `doOnlySetting` mode.
+Covers: manual-pause preservation, ended/uninitialized/hidden/off-viewport video skipping, CSS-hidden selection, multi-video selection (largest visible wins), no event blocking, single listener per script execution, `defineProperty` production path + failure fallback + partial-failure logging, all `startupQuality` cases, `doOnlySetting` mode, zero-video pages, and `play()` returning `undefined`.
 
 > The userscript is designed to run once per document load (it is injected once at `document-start`). The listener test asserts one registration per script execution, not protection against double injection.
 
