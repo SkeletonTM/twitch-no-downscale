@@ -317,6 +317,70 @@ test('3g. play() throwing synchronously does not break the listener (N2)', () =>
   assert(video.playCalls.length === 1, 'play() was attempted');
 });
 
+// 3h. getComputedStyle throwing must not break the listener (NEW-1 regression)
+test('3h. getComputedStyle throwing does not break the listener (NEW-1)', () => {
+  const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 } });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
+  const consoleMock = makeConsole();
+  const storage = makeStorage();
+  const win = makeWindow(storage, {
+    getComputedStyle() { throw new Error('getComputedStyle boom'); },
+  });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc); // must not throw
+  assert(video.playCalls.length === 1, 'video must still be playable when getComputedStyle throws');
+});
+
+// 3i. getBoundingClientRect read once per candidate (N3 regression)
+test('3i. getBoundingClientRect read once per candidate (N3)', () => {
+  let reads = 0;
+  const mk = (id, rect) => ({
+    id,
+    paused: false,
+    ended: false,
+    readyState: 4,
+    rect,
+    playCalls: [],
+    getBoundingClientRect() { reads++; return this.rect; },
+    play() { this.playCalls.push(this.id); return Promise.resolve(); },
+  });
+  const visible = mk('visible', { width: 640, height: 360, top: 0, left: 0 });
+  const above = mk('above', { width: 640, height: 100, top: -500, left: 0 });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([above, visible], ctor);
+  const consoleMock = makeConsole();
+  const storage = makeStorage();
+  const win = makeWindow(storage, { innerWidth: 1600, innerHeight: 900 });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc);
+  assert(visible.playCalls.length === 1, 'visible element must win');
+  assert(reads === 2, 'getBoundingClientRect must be read once per candidate, got ' + reads);
+});
+
+// 3j. element fully above viewport with no bottom/right is skipped (N4 regression)
+test('3j. fully-above element with no bottom/right is skipped (N4)', () => {
+  const above = {
+    id: 'above',
+    paused: false,
+    ended: false,
+    readyState: 4,
+    playCalls: [],
+    // Only width/height/top/left — no bottom/right, as a bare rect object
+    rect: { width: 640, height: 100, top: -500, left: 0 },
+    getBoundingClientRect() { return this.rect; },
+    play() { this.playCalls.push(this.id); return Promise.resolve(); },
+  };
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([above], ctor);
+  const consoleMock = makeConsole();
+  const storage = makeStorage();
+  const win = makeWindow(storage, { innerWidth: 1600, innerHeight: 900 });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc);
+  assert(above.playCalls.length === 0, 'fully-above element must be skipped (edges derived)');
+});
+
 // 4. stopImmediatePropagation must NOT be used (no global event blocking).
 test('4. no stopImmediatePropagation on visibilitychange (incl. repeated calls)', () => {
   const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 } });
