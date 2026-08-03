@@ -59,6 +59,7 @@ function makeVideo(opts) {
     playCalls: calls,
     play() {
       calls.push(this.id);
+      if (opts.playThrows) throw new Error('legacy sync throw');
       return opts.playResult !== undefined ? opts.playResult : Promise.resolve();
     },
     getBoundingClientRect() { return this.rect; },
@@ -249,6 +250,71 @@ test('3e. off-viewport element skipped', () => {
   triggerVisibilityChange(doc);
   assert(off.playCalls.length === 0, 'off-viewport element must be skipped');
   assert(onScreen.playCalls.length === 1, 'on-screen element must win');
+});
+
+// 3d2. display:none element (large rect) must NOT win (N5 branch)
+test('3d2. display:none big element does not win', () => {
+  const cssHidden = makeVideo({ id: 'css-hidden', paused: false, rect: { width: 1280, height: 720 } });
+  const visible = makeVideo({ id: 'visible', paused: false, rect: { width: 640, height: 360 } });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([cssHidden, visible], ctor);
+  const consoleMock = makeConsole();
+  const storage = makeStorage();
+  const win = makeWindow(storage, {
+    getComputedStyle(el) {
+      const hidden = el.id === 'css-hidden';
+      return { display: hidden ? 'none' : 'block', visibility: 'visible', opacity: '1' };
+    },
+  });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc);
+  assert(cssHidden.playCalls.length === 0, 'display:none element must not be played');
+  assert(visible.playCalls.length === 1, 'visible element must win');
+});
+
+// 3d3. opacity:0 element (large rect) must NOT win (N5 branch)
+test('3d3. opacity:0 big element does not win', () => {
+  const cssHidden = makeVideo({ id: 'css-hidden', paused: false, rect: { width: 1280, height: 720 } });
+  const visible = makeVideo({ id: 'visible', paused: false, rect: { width: 640, height: 360 } });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([cssHidden, visible], ctor);
+  const consoleMock = makeConsole();
+  const storage = makeStorage();
+  const win = makeWindow(storage, {
+    getComputedStyle(el) {
+      const hidden = el.id === 'css-hidden';
+      return { display: 'block', visibility: 'visible', opacity: hidden ? '0' : '1' };
+    },
+  });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc);
+  assert(cssHidden.playCalls.length === 0, 'opacity:0 element must not be played');
+  assert(visible.playCalls.length === 1, 'visible element must win');
+});
+
+// 3f. zero-size viewport must not reject all videos (N1 regression)
+test('3f. zero-size viewport does not reject all videos (N1)', () => {
+  const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 } });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
+  const consoleMock = makeConsole();
+  const storage = makeStorage();
+  const win = makeWindow(storage, { innerWidth: 0, innerHeight: 0 });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc);
+  assert(video.playCalls.length === 1, 'video must still be playable when viewport is 0x0');
+});
+
+// 3g. play() throwing synchronously must not break the listener (N2 regression)
+test('3g. play() throwing synchronously does not break the listener (N2)', () => {
+  const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 }, playThrows: true });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
+  const consoleMock = makeConsole();
+  const storage = makeStorage();
+  runScript(BODY, { document: doc, window: makeWindow(storage), Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc); // must not throw out of the listener
+  assert(video.playCalls.length === 1, 'play() was attempted');
 });
 
 // 4. stopImmediatePropagation must NOT be used (no global event blocking).
