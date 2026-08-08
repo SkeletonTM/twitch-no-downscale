@@ -381,6 +381,79 @@ test('3j. fully-above element with no bottom/right is skipped (N4)', () => {
   assert(above.playCalls.length === 0, 'fully-above element must be skipped (edges derived)');
 });
 
+// 3k. checkVisibility fast path: false => skipped, no getComputedStyle read
+test('3k. checkVisibility fast path skips hidden elements without getComputedStyle', () => {
+  let styleReads = 0;
+  const mk = (id, checkVisibility, rect) => ({
+    id, paused: false, ended: false, readyState: 4,
+    playCalls: [],
+    rect: rect || { width: 640, height: 360, top: 0, left: 0 },
+    getBoundingClientRect() { return this.rect; },
+    checkVisibility,
+    play() { this.playCalls.push(this.id); return Promise.resolve(); },
+  });
+  const hidden = mk('hidden', () => false, { width: 1280, height: 720, top: 0, left: 0 });
+  const visible = mk('visible', () => true);
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([hidden, visible], ctor);
+  const consoleMock = makeConsole();
+  const storage = makeStorage();
+  const win = makeWindow(storage, {
+    getComputedStyle() { styleReads++; return { display: 'block', visibility: 'visible', opacity: '1' }; },
+  });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc);
+  assert(hidden.playCalls.length === 0, 'checkVisibility=false element must be skipped');
+  assert(visible.playCalls.length === 1, 'visible element must win');
+  assert(styleReads === 0, 'getComputedStyle must not be called when checkVisibility exists, got ' + styleReads);
+});
+
+// 3m. fallback path: opacity written as '0.000' must count as hidden (parseFloat)
+test('3m. fallback path treats opacity 0.000 as hidden (parseFloat)', () => {
+  const video = {
+    id: 'main',
+    paused: false, ended: false, readyState: 4,
+    playCalls: [],
+    rect: { width: 1280, height: 720, top: 0, left: 0 },
+    getBoundingClientRect() { return this.rect; },
+    play() { this.playCalls.push(this.id); return Promise.resolve(); },
+    // no checkVisibility -> fallback path
+  };
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
+  const consoleMock = makeConsole();
+  const storage = makeStorage();
+  const win = makeWindow(storage, {
+    getComputedStyle() { return { display: 'block', visibility: 'visible', opacity: '0.000' }; },
+  });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc);
+  assert(video.playCalls.length === 0, 'opacity 0.000 must be treated as hidden');
+});
+
+// 3n. checkVisibility throwing must fall back to getComputedStyle (guard test)
+test('3n. checkVisibility throwing falls back to getComputedStyle', () => {
+  const video = {
+    id: 'hidden',
+    paused: false, ended: false, readyState: 4,
+    playCalls: [],
+    rect: { width: 1280, height: 720, top: 0, left: 0 },
+    getBoundingClientRect() { return this.rect; },
+    checkVisibility() { throw new Error('checkVisibility boom'); },
+    play() { this.playCalls.push(this.id); return Promise.resolve(); },
+  };
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
+  const consoleMock = makeConsole();
+  const storage = makeStorage();
+  const win = makeWindow(storage, {
+    getComputedStyle() { return { display: 'none', visibility: 'visible', opacity: '1' }; },
+  });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc); // must not throw
+  assert(video.playCalls.length === 0, 'fallback must reject the element');
+});
+
 // 4. stopImmediatePropagation must NOT be used (no global event blocking).
 test('4. no stopImmediatePropagation on visibilitychange (incl. repeated calls)', () => {
   const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 } });
@@ -460,6 +533,11 @@ test('6c. prototype freeze succeeds (production path, no own props)', () => {
   assert(doc.webkitHidden === false, 'webkitHidden must be false');
   assert(Object.getOwnPropertyDescriptor(doc, 'hidden') === undefined,
     'hidden must live on Document.prototype, not on the document instance (production path)');
+  const desc = Object.getOwnPropertyDescriptor(ctor.prototype, 'hidden');
+  assert(desc && desc.enumerable === true, 'frozen property must be enumerable like the native one');
+  assert(typeof desc.set === 'function', 'frozen property must expose a no-op setter');
+  doc.hidden = true; // must not throw and must not change the value
+  assert(doc.hidden === false, 'hidden must still read false after a write attempt');
   assert(consoleMock.warns.length === 0, 'no warning when prototype path succeeds');
 });
 
