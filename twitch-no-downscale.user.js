@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitch - Disable automatic video downscale
 // @namespace    CommanderRoot
-// @version      1.4.4
+// @version      1.4.5
 // @description  Disables the automatic downscaling of Twitch streams while tabbed away
 // @author       Taizun, CommanderRoot, SkeletonTM
 // @match        https://www.twitch.tv/*
@@ -46,7 +46,9 @@ function freezeVisibility() {
     // configurable: true is deliberate: it lets a re-run of this script (or
     // another userscript) redefine the property without throwing. Hardening
     // to configurable: false would make double injection throw instead.
-    const desc = { get: () => value, configurable: true };
+    // enumerable: true mirrors the native DOM properties; the no-op setter
+    // keeps writes (e.g. by other strict-mode scripts) from throwing.
+    const desc = { get: () => value, set: () => {}, enumerable: true, configurable: true };
     let ok = false;
     try {
       Object.defineProperty(Document.prototype, name, desc);
@@ -82,6 +84,15 @@ function isActuallyVisible(v, rect) {
   // viewport actually has a size.
   if (vh > 0 && rect.top >= vh) return false;
   if (vw > 0 && rect.left >= vw) return false;
+  // Native fast path (Chrome 105+/Firefox 106+/Safari 17+): checkVisibility
+  // also sees display:none / visibility:hidden on ancestors and accounts for
+  // content-visibility:auto, which getComputedStyle on the element cannot.
+  // Fall back to getComputedStyle when the method is absent or throws.
+  if (typeof v.checkVisibility === 'function') {
+    try {
+      return v.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+    } catch (e) { /* non-standard environment: fall through */ }
+  }
   // getComputedStyle is guarded: a patched or non-standard environment may
   // throw, and a failed style read must not break the visibility listener.
   let style = null;
@@ -89,7 +100,7 @@ function isActuallyVisible(v, rect) {
     style = window.getComputedStyle ? window.getComputedStyle(v) : null;
   } catch (e) { /* non-standard environment */ }
   if (style) {
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+    if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) return false;
   }
   return true;
 }
@@ -128,8 +139,11 @@ function getVideo() {
 function playVideo() {
   const video = getVideo();
   if (!video || video.paused || video.ended) return;
-  // play() on an already-playing video is a no-op; .catch() guards against
-  // an unhandled rejection if the browser's autoplay policy intervenes.
+  // play() on an already-playing video is a no-op for the media pipeline;
+  // the call exists to reset the browser's internal autoplay timers so that
+  // aggressive background optimizations (e.g. Battery Saver) do not throttle
+  // the player while the tab is hidden. .catch() guards against an unhandled
+  // rejection if the browser's autoplay policy intervenes.
   // Legacy engines may return undefined instead of a Promise — guard for it.
   try {
     const p = video.play();
