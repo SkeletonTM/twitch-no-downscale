@@ -1,6 +1,6 @@
 # Twitch — Disable automatic video downscale
 
-**v1.4.4** — Prevents Twitch from downscaling video when the tab is in the background.
+**v1.4.5** — Prevents Twitch from downscaling video when the tab is in the background.
 
 **[Install](https://raw.githubusercontent.com/SkeletonTM/twitch-no-downscale/main/twitch-no-downscale.user.js)**
 
@@ -19,6 +19,12 @@ The script freezes the [Page Visibility API](https://developer.mozilla.org/en-US
 It also writes a quality hint to `localStorage` once per page load.
 
 ## Changes
+
+### v1.4.5
+- **`checkVisibility()` fast path** — visibility is decided by the native `Element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })` when available (Chrome 105+/Firefox 106+/Safari 17+); unlike `getComputedStyle` on the element, it also sees `display:none`/`visibility:hidden` on ancestors and honours `content-visibility:auto`. The `getComputedStyle` check remains as a guarded fallback
+- **Opacity parsed numerically** — the fallback treats `opacity: 0.000` as hidden, not just the exact string `'0'`
+- **Freeze descriptor** — frozen visibility properties are now `enumerable` (mirroring native DOM properties) and carry a no-op setter, so writes from other strict-mode scripts cannot throw
+- **Tests: 27 → 30** — added cases for the `checkVisibility` fast path, `checkVisibility` throwing, and `opacity: 0.000`
 
 ### v1.4.4
 - **`getComputedStyle()` guarded** — a patched or non-standard environment that throws on style reads can no longer break the `visibilitychange` listener
@@ -98,7 +104,7 @@ Automated behaviour tests live in [`tests/run-tests.js`](tests/run-tests.js) (pu
 node tests/run-tests.js
 ```
 
-Covers: manual-pause preservation, ended/uninitialized/hidden/off-viewport video skipping, CSS-hidden/`display:none`/`opacity:0` selection, zero-size viewport, multi-video selection (largest visible wins), no event blocking, single listener per script execution, `defineProperty` production path + failure fallback + partial-failure logging, all `startupQuality` cases, `doOnlySetting` mode, zero-video pages, `play()` returning `undefined`, `play()` throwing synchronously, `getComputedStyle()` throwing, single `getBoundingClientRect()` read per candidate, and rects without `bottom`/`right`.
+Covers: manual-pause preservation, ended/uninitialized/hidden/off-viewport video skipping, CSS-hidden/`display:none`/`opacity:0` selection, zero-size viewport, multi-video selection (largest visible wins), no event blocking, single listener per script execution, `defineProperty` production path + failure fallback + partial-failure logging, all `startupQuality` cases, `doOnlySetting` mode, zero-video pages, `play()` returning `undefined`, `play()` throwing synchronously, `getComputedStyle()` throwing, single `getBoundingClientRect()` read per candidate, rects without `bottom`/`right`, the `checkVisibility` fast path, `checkVisibility` throwing, and `opacity: 0.000`.
 
 > The userscript is designed to run once per document load (it is injected once at `document-start`). The listener test asserts one registration per script execution, not protection against double injection.
 
