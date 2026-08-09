@@ -84,8 +84,11 @@ function runScript(body, { document, window, Document, console: consoleMock, rep
     Map,
     Promise,
   };
+  // Wrap like a real userscript manager (Tampermonkey etc.): the body is
+  // evaluated inside a function, so a top-level early `return` (top-frame
+  // guard) is legal and behaves like in a browser.
   vm.createContext(sandbox);
-  vm.runInContext(code, sandbox, { filename: 'userscript.js' });
+  vm.runInContext('(function () {\n' + code + '\n})();', sandbox, { filename: 'userscript.js' });
   return sandbox;
 }
 
