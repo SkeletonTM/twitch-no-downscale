@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitch - Disable automatic video downscale
 // @namespace    CommanderRoot
-// @version      1.4.5
+// @version      1.4.6
 // @description  Disables the automatic downscaling of Twitch streams while tabbed away
 // @author       Taizun, CommanderRoot, SkeletonTM
 // @match        https://www.twitch.tv/*
@@ -17,6 +17,12 @@
 // ==/UserScript==
 
 "use strict";
+
+// The freeze and the quality hint only matter in the top document: inside
+// Twitch embeds/iframes they would duplicate listeners and write
+// localStorage for nothing. @noframes would do the same, but a runtime guard
+// also covers managers that ignore that directive.
+if (window.top !== window.self) return;
 
 // CONFIG start ------
 const doOnlySetting = false; // false = do some trickery with document hidden state / true = only set the localStorage option
@@ -157,9 +163,14 @@ function playVideo() {
 if (doOnlySetting === false) {
   freezeVisibility();
 
-  document.addEventListener('visibilitychange', function () {
-    playVideo();
-  }, true);
+  // Three sources are nudged: the standard visibilitychange, the legacy
+  // webkit-prefixed event (Safari < 17), and the Page Lifecycle 'resume'
+  // (Chrome's tab freeze/discard can throttle the player while
+  // document.hidden stays false; 'resume' is a no-op where never dispatched).
+  const onVisibilityNudge = () => playVideo();
+  document.addEventListener('visibilitychange', onVisibilityNudge, true);
+  document.addEventListener('webkitvisibilitychange', onVisibilityNudge, true);
+  document.addEventListener('resume', onVisibilityNudge, true);
 }
 
 // Set quality once on page load. NOTE: as of 2026 the desktop Twitch player
