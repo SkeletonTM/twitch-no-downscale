@@ -1,5 +1,11 @@
 # Changelog
 
+### v1.4.6
+- **Top-frame guard** — the script now exits immediately inside Twitch embeds/iframes (`window.top !== window.self`): no duplicate listeners, no wasted `localStorage` writes
+- **Legacy Safari event** — listens to `webkitvisibilitychange` in addition to the standard `visibilitychange` (Safari < 17 dispatched only the prefixed event)
+- **Page Lifecycle `resume` nudge** — Chrome's tab freeze/discard can throttle the player while `document.hidden` stays `false`; the player is nudged on `resume` too (a no-op on browsers that never dispatch it)
+- **Tests: 30 → 32** — added the top-frame guard case, the three-listener registration assertion, and webkit/`resume` nudge checks; the harness now wraps the script body in a function like a real userscript manager
+
 ### v1.4.5
 - **`checkVisibility()` fast path** — visibility is decided by the native `Element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })` when available (Chrome 105+/Firefox 106+/Safari 17+); unlike `getComputedStyle` on the element, it also sees `display:none`/`visibility:hidden` on ancestors and honours `content-visibility:auto`. The `getComputedStyle` check remains as a guarded fallback
 - **Opacity parsed numerically** — the fallback treats `opacity: 0.000` as hidden, not just the exact string `'0'`
