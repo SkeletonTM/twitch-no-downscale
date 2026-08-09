@@ -1,0 +1,53 @@
+# Changelog
+
+### v1.4.5
+- **`checkVisibility()` fast path** — visibility is decided by the native `Element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })` when available (Chrome 105+/Firefox 106+/Safari 17+); unlike `getComputedStyle` on the element, it also sees `display:none`/`visibility:hidden` on ancestors and honours `content-visibility:auto`. The `getComputedStyle` check remains as a guarded fallback
+- **Opacity parsed numerically** — the fallback treats `opacity: 0.000` as hidden, not just the exact string `'0'`
+- **Freeze descriptor** — frozen visibility properties are now `enumerable` (mirroring native DOM properties) and carry a no-op setter, so writes from other strict-mode scripts cannot throw
+- **Tests: 27 → 30** — added cases for the `checkVisibility` fast path, `checkVisibility` throwing, and `opacity: 0.000`
+
+### v1.4.4
+- **`getComputedStyle()` guarded** — a patched or non-standard environment that throws on style reads can no longer break the `visibilitychange` listener
+- **Single layout read per candidate** — `getBoundingClientRect()` is read once per video; the far-edge check derives `bottom`/`right` from `top`/`left` + size, so it works on any rect-shaped object
+- **Tests: 24 → 27** — added cases for `getComputedStyle()` throwing, one-rect-read-per-candidate, and a rect without `bottom`/`right`
+
+### v1.4.3
+- **Zero-size viewport guard** — a minimized window reporting `0×0` no longer causes the player-selection heuristic to reject every video
+- **`play()` fully guarded** — engines that throw synchronously (legacy) can no longer break the `visibilitychange` listener
+- **Tests: 20 → 24** — added `display:none` and `opacity:0` computed-style cases, a zero-size viewport case, and a sync-throw `play()` case
+
+### v1.4.2
+- **Hardened player selection** — a video must intersect the viewport and have a non-hidden computed style (`visibility`, `opacity`, `display`) to be considered; CSS-hidden and off-viewport elements no longer win over the real stream
+- **Frozen `document.webkitHidden`** (legacy Safari) in addition to the other visibility properties
+- **`play()` guard** — handles engines where `play()` returns `undefined` instead of a Promise
+- **Docs** — documented why `quality-bitrate: '0'` is written and why the frozen props stay `configurable: true`
+- **Tests: 15 → 20** — the mock document now inherits from `Document.prototype`, so the tests exercise the production freeze path instead of the instance fallback; added cases for CSS-hidden/off-viewport selection, zero videos, and `play()` returning `undefined`
+
+### v1.4.1
+- **Docs** — toned down claims about player selection, `hasFocus()`, and legacy `localStorage` keys to match the actual evidence level (see Known limitations)
+
+### v1.4.0
+- **Manual pause is preserved** — `play()` is only called on videos that are *already playing*; a video the user paused is never resumed. (The public API cannot distinguish a manual pause from one caused by the browser/Twitch — both report `paused === true` — so the script takes the conservative route and never touches a paused video.)
+- **Best-effort active player selection** — the active `<video>` is picked by visibility and playable state (`readyState > 0`, not `ended`), largest visible element wins; `videos[0]` is no longer trusted blindly (ads, stale elements, hidden previews). This is a heuristic, not a guarantee: when an ad and the stream are visible at the same time, the largest element wins and the main stream is not guaranteed to be chosen
+- **No more `stopImmediatePropagation()`** — the global capture-phase event blocking is gone; other scripts and extensions receive `visibilitychange` normally (the freeze alone prevents downscale)
+- **Removed `hasFocus()` override** — the override was removed because it affected the whole page and its necessity for downscale prevention was not established
+- **Independent `defineProperty`** — each visibility property is applied and verified separately, so a failure in one does not leave a partially applied config; partial failure is logged
+- **Optimizations** — `getVideo()` is queried once per event, `Math.floor(Date.now())` dropped (`Date.now()` is already an integer), no polling, one listener per script execution
+
+### v1.3.3
+- **Removed SPA re-apply** — quality is set once on page load only, so manual quality selection is never overwritten
+- **Dropped dead `didInitialPlay` state** — `playVideo()` no longer tracks unused flags
+
+### v1.3.2
+- **Cleanup** — extracted `getVideo()` helper, simplified `playVideo()`, added `.catch()` on `play()`
+
+### v1.3.1
+- **Freeze on `Document.prototype`** with fallback to `document` instance — works in modern browsers where instance-level `defineProperty` is silently ignored
+- **`source`/`best` → `chunked` remap** — Twitch's `localStorage` value for Source quality is `chunked`; writing `source` silently falls back to `auto`
+
+### v1.3.0
+- **try/catch around `Object.defineProperty`** — doesn't fail silently anymore
+- **`document.hidden` is frozen** — Twitch can't poll it directly
+- **First `hidden→visible` allowed through** — no more black screen on new tab open
+- **Cross-browser** — works in Firefox/Safari, not just Chrome
+- **Doesn't override manual quality selection** — `setQualitySettings` only called on page load
