@@ -121,7 +121,10 @@ function makeConsole() {
 }
 
 function makeWindow(storage, extra = {}) {
-  return Object.assign({ localStorage: storage }, extra);
+  const win = { localStorage: storage };
+  win.top = win; // default: the test runs in the top frame (top === self)
+  win.self = win;
+  return Object.assign(win, extra);
 }
 
 function triggerVisibilityChange(documentMock, eventSpy) {
@@ -145,6 +148,20 @@ function test(name, fn) {
   }
 }
 function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed'); }
+
+// 0. Top-frame guard: in an iframe (window.top !== window.self) the script
+// must not register listeners or touch localStorage.
+test('0. top-frame guard: no listeners or storage writes in an iframe', () => {
+  const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 } });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
+  const consoleMock = makeConsole();
+  const storage = makeStorage();
+  const win = makeWindow(storage, { top: { /* different window */ } });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: consoleMock });
+  assert(doc.listeners.length === 0, 'no listeners must be registered in an iframe');
+  assert(storage.keys().length === 0, 'localStorage must not be written in an iframe');
+});
 
 // 1. Manual pause is preserved: paused video must NOT get play() called.
 test('1. manual pause preserved (no play() on paused video)', () => {
@@ -470,17 +487,40 @@ test('4. no stopImmediatePropagation on visibilitychange (incl. repeated calls)'
   assert(blocked === false, 'other listeners must not be blocked on repeated dispatch');
 });
 
-// 5. Listener registered exactly once per script execution, capture phase.
-test('5. visibilitychange listener registered once per script execution (capture)', () => {
+// 5. Exactly three nudges registered per script execution: visibilitychange,
+// webkitvisibilitychange (Safari < 17) and Page Lifecycle 'resume', all on
+// the capture phase. Nothing else - keeps the no-event-blocking guarantee.
+test('5. exactly three listeners per script execution (capture)', () => {
   const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 } });
   const ctor = makeDocumentCtor();
   const doc = makeDocument([video], ctor);
   const consoleMock = makeConsole();
   runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
 
-  const vis = doc.listeners.filter(x => x.type === 'visibilitychange');
-  assert(vis.length === 1, 'expected exactly one visibilitychange listener, got ' + vis.length);
-  assert(vis[0].capture === true, 'listener must be on capture phase');
+  assert(doc.listeners.length === 3, 'expected exactly 3 listeners, got ' + doc.listeners.length);
+  const types = doc.listeners.map(x => x.type).sort();
+  assert(types.join(',') === 'resume,visibilitychange,webkitvisibilitychange',
+    'unexpected listener types: ' + types.join(','));
+  assert(doc.listeners.every(x => x.capture === true), 'all listeners must be capture-phase');
+});
+
+// 5b. The legacy webkit and Page Lifecycle events also nudge playVideo().
+test('5b. webkitvisibilitychange and resume events nudge playVideo()', () => {
+  const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 } });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
+  const consoleMock = makeConsole();
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
+
+  const fire = (type) => {
+    const l = doc.listeners.find(x => x.type === type);
+    assert(l, type + ' listener must be registered');
+    l.fn({});
+  };
+  fire('webkitvisibilitychange');
+  assert(video.playCalls.length === 1, 'webkitvisibilitychange must nudge play()');
+  fire('resume');
+  assert(video.playCalls.length === 2, 'resume must nudge play()');
 });
 
 // 6. Object.defineProperty failure on Document.prototype -> instance fallback works.
