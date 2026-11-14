@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Tests for twitch-no-downscale.user.js (v1.4.6)
+ * Tests for twitch-no-downscale.user.js (v1.4.7)
  * Pure Node, no dependencies. Runs the userscript body inside a VM sandbox
  * with mocked DOM/Window and asserts behaviour.
  */
@@ -57,10 +57,15 @@ function makeVideo(opts) {
     readyState: opts.readyState !== undefined ? opts.readyState : 4,
     rect,
     playCalls: calls,
+    playReturns: [],
     play() {
       calls.push(this.id);
       if (opts.playThrows) throw new Error('legacy sync throw');
-      return opts.playResult !== undefined ? opts.playResult : Promise.resolve();
+      // Object.hasOwn (not `!== undefined`) so a test can ask for a genuine
+      // undefined return - legacy engines return undefined, not a Promise.
+      const result = Object.hasOwn(opts, 'playResult') ? opts.playResult : Promise.resolve();
+      this.playReturns.push(result);
+      return result;
     },
     getBoundingClientRect() { return this.rect; },
   };
@@ -474,6 +479,59 @@ test('3n. checkVisibility throwing falls back to getComputedStyle', () => {
   assert(video.playCalls.length === 0, 'fallback must reject the element');
 });
 
+// 3o. checkVisibility must be asked for contentVisibilityAuto explicitly:
+// the switch defaults to false, so content-visibility:auto subtrees would
+// otherwise be treated as visible.
+test('3o. checkVisibility is called with contentVisibilityAuto: true', () => {
+  const seen = [];
+  const video = {
+    id: 'main', paused: false, ended: false, readyState: 4,
+    playCalls: [],
+    rect: { width: 1280, height: 720, top: 0, left: 0 },
+    getBoundingClientRect() { return this.rect; },
+    checkVisibility(opts) { seen.push(opts); return true; },
+    play() { this.playCalls.push(this.id); return Promise.resolve(); },
+  };
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
+  const consoleMock = makeConsole();
+  const win = makeWindow(makeStorage(), {
+    getComputedStyle() { throw new Error('must not be reached'); },
+  });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc);
+  assert(seen.length === 1, 'checkVisibility must be called once, got ' + seen.length);
+  assert(seen[0].contentVisibilityAuto === true, 'contentVisibilityAuto must be true');
+  assert(seen[0].checkOpacity === true && seen[0].checkVisibilityCSS === true,
+    'checkOpacity and checkVisibilityCSS must stay on');
+  assert(video.playCalls.length === 1, 'visible element must be selected');
+});
+
+// 3p. Engines that reject the wider option set: retried with the minimal set.
+test('3p. checkVisibility rejecting the wider option set retries minimally', () => {
+  const seen = [];
+  const video = {
+    id: 'main', paused: false, ended: false, readyState: 4,
+    playCalls: [],
+    rect: { width: 1280, height: 720, top: 0, left: 0 },
+    getBoundingClientRect() { return this.rect; },
+    checkVisibility(opts) {
+      seen.push(opts);
+      if (Object.hasOwn(opts, 'contentVisibilityAuto')) throw new Error('unsupported option');
+      return true;
+    },
+    play() { this.playCalls.push(this.id); return Promise.resolve(); },
+  };
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
+  const consoleMock = makeConsole();
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc); // must not throw
+  assert(seen.length === 2, 'expected a retry, got ' + seen.length + ' call(s)');
+  assert(!Object.hasOwn(seen[1], 'contentVisibilityAuto'), 'retry must drop contentVisibilityAuto');
+  assert(video.playCalls.length === 1, 'element must still be selected after the retry');
+});
+
 // 4. stopImmediatePropagation must NOT be used (no global event blocking).
 test('4. no stopImmediatePropagation on visibilitychange (incl. repeated calls)', () => {
   const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 } });
@@ -684,7 +742,7 @@ test('9. no videos on page — listener does not throw', () => {
   assert(true, 'listener ran without throwing when there are no videos');
 });
 
-// 10. Legacy engine: play() returns undefined, not a Promise — must not throw.
+// 10. Legacy engine: play() returns undefined, not a Promise - must not throw.
 test('10. play() returning undefined does not throw', () => {
   const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 }, playResult: undefined });
   const ctor = makeDocumentCtor();
@@ -693,6 +751,23 @@ test('10. play() returning undefined does not throw', () => {
   runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
   triggerVisibilityChange(doc);
   assert(video.playCalls.length === 1, 'play() must be called on the playing video');
+  assert(video.playReturns.length === 1 && video.playReturns[0] === undefined,
+    'play() must genuinely return undefined (hasOwn path), got ' + String(video.playReturns[0]));
+});
+
+// 11b. Promise-returning play() path still resolves/consumes the rejection.
+test('11b. play() returning a rejected Promise does not throw', () => {
+  const video = makeVideo({
+    id: 'main', paused: false, rect: { width: 640, height: 360 },
+    playResult: Promise.reject(new Error('autoplay blocked')),
+  });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
+  const consoleMock = makeConsole();
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc);
+  assert(video.playCalls.length === 1, 'play() must be called');
+  assert(video.playReturns[0] instanceof Promise, 'mock must return a Promise here');
 });
 
 // ---- summary -----------------------------------------------------------

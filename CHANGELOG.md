@@ -1,5 +1,11 @@
 # Changelog
 
+### v1.4.7
+- **`contentVisibilityAuto: true`** - the `checkVisibility()` fast path now passes the option its comment claimed. `contentVisibilityAuto` is a separate switch that defaults to `false`, so skipped `content-visibility: auto` subtrees were previously treated as visible. A throwing wider option set is retried with the minimal set before the `getComputedStyle` fallback
+- **Legacy `play()` mock fixed** - `makeVideo()` used `opts.playResult !== undefined`, which converted an explicit `undefined` into `Promise.resolve()`, so the "play() returns undefined" case was never exercised. The mock now uses `Object.hasOwn` and records the return value; the test asserts it really is `undefined`
+- **Docs: honest API side effect** - the freeze defines getters on `Document.prototype`, so every script in the page realm sees the forced visible state. README "How it works" / "Known limitations" and the code comment now say so, and note that event dispatch is not blocked while isolation worlds decide which scripts observe the override
+- **Tests: 32 → 35** - added `contentVisibilityAuto` option assertion, wider-option-set retry, rejected `play()` Promise
+
 ### v1.4.6
 - **Top-frame guard** — the script now exits immediately inside Twitch embeds/iframes (`window.top !== window.self`): no duplicate listeners, no wasted `localStorage` writes
 - **Legacy Safari event** — listens to `webkitvisibilitychange` in addition to the standard `visibilitychange` (Safari < 17 dispatched only the prefixed event)

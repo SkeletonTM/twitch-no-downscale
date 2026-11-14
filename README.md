@@ -1,6 +1,6 @@
 # Twitch - Disable automatic video downscale
 
-**v1.4.6** - Prevents Twitch from downscaling video when the tab is in the background.
+**v1.4.7** - Prevents Twitch from downscaling video when the tab is in the background.
 
 **[Install](https://raw.githubusercontent.com/SkeletonTM/twitch-no-downscale/main/twitch-no-downscale.user.js)**
 
@@ -16,9 +16,17 @@ This fork keeps the original script's `@name` and `@namespace`, so userscript ma
 
 The script freezes the [Page Visibility API](https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API) (`document.hidden`, `document.webkitHidden`, `document.visibilityState`, `document.webkitVisibilityState`) so Twitch always believes the tab is visible and never drops the stream quality in the background. Each property is frozen independently with a verified fallback to the `document` instance, so a partial failure never leaves the page half-frozen and is always logged.
 
+**This override is not private to the script.** The getters are installed on `Document.prototype`, so every script running in the same page realm reads the forced "visible" state too - `document.hidden` is `false` and `document.visibilityState` is `'visible'` for anyone who asks, including Twitch's own code and any other page script. Events are *not* blocked or suppressed: `visibilitychange` still fires normally and reaches all listeners. Whether *other extensions* are affected depends on their isolation world (see Known limitations).
+
 It also writes a quality hint to `localStorage` once per page load.
 
 ## Changelog
+
+### v1.4.7
+- **`contentVisibilityAuto: true`** - the `checkVisibility()` fast path now requests the option its comment always claimed, so elements inside skipped `content-visibility: auto` subtrees are treated as not visible. Engines that reject the wider option set are retried with the minimal set before falling back to `getComputedStyle`
+- **Legacy `play()` test actually tested** - the mock used `opts.playResult !== undefined`, which turned an explicit `undefined` into a Promise; it now uses `Object.hasOwn`, and the test asserts the return value really is `undefined`
+- **Docs: global API side effect** - README and code comments now state that the freeze overrides `document.hidden` / `document.visibilityState` for every script in the page realm, and that extension isolation worlds decide who else sees it (events stay unblocked)
+- **Tests: 32 → 35** - added `contentVisibilityAuto` option assertion, wider-option-set retry, and a rejected-Promise case
 
 ### v1.4.6
 - **Top-frame guard** — runs only in the top document; Twitch embeds/iframes are skipped (no duplicate listeners, no wasted `localStorage` writes)
@@ -48,6 +56,7 @@ const startupQuality = 'source';  // quality on page load; '' = don't touch qual
 ## Known limitations
 
 - **Video selection is a best-effort heuristic:** the active element is chosen by viewport intersection, computed style (`display`/`visibility`/`opacity`), readiness (`readyState > 0`, not `ended`), and largest visible area. This is better than `videos[0]` but does not guarantee the main stream is chosen when an ad and the stream are visible simultaneously.
+- **The Page Visibility override is page-wide, by design:** `document.hidden` / `document.visibilityState` (and the `webkit` pairs) are redefined on `Document.prototype`, so *any* script in that page realm that reads them sees "visible" even when the tab is in the background. Event dispatch is untouched - `visibilitychange` still fires and no listener is blocked. Who else observes the override depends on the isolation world: an isolated-world userscript (Chrome/Tampermonkey default) patches only its own copy of `Document.prototype`, while a page-context one (e.g. `@grant none` in Firefox) patches the real prototype and is visible to page scripts. Other extensions may see either behaviour depending on their world and on how they read the API.
 - **Legacy `localStorage` keys are unvalidated on current Twitch:** the current desktop player may use separate Amazon IVS preference keys. The legacy keys (`video-quality`, `quality-bitrate`, `s-qs-ts`) have not been validated against a live player in this repository, so their effect may be a no-op on current Twitch builds. They are kept for compatibility with older player builds; the visibility freeze is the mechanism that actually prevents downscale.
 - **Manual pause vs. browser pause cannot be distinguished** via the public API, so a video paused by the browser (not the user) is also never auto-resumed; conservative by design.
 - **Firefox note (from upstream):** on Windows, Firefox users may additionally want `widget.windows.window_occlusion_tracking.enabled = false` in `about:config` if background tabs stutter; this is a browser-level occlusion optimisation, separate from Twitch's quality drop.
@@ -60,7 +69,7 @@ Automated behaviour tests live in [`tests/run-tests.js`](tests/run-tests.js) (pu
 node tests/run-tests.js
 ```
 
-Covers: top-frame guard, manual-pause preservation, ended/uninitialized/hidden/off-viewport video skipping, CSS-hidden/`display:none`/`opacity:0` selection, zero-size viewport, multi-video selection (largest visible wins), no event blocking, single listener per script execution, `defineProperty` production path + failure fallback + partial-failure logging, all `startupQuality` cases, `doOnlySetting` mode, zero-video pages, `play()` returning `undefined`, `play()` throwing synchronously, `getComputedStyle()` throwing, single `getBoundingClientRect()` read per candidate, rects without `bottom`/`right`, the `checkVisibility` fast path, `checkVisibility` throwing, and `opacity: 0.000`.
+Covers: top-frame guard, manual-pause preservation, ended/uninitialized/hidden/off-viewport video skipping, CSS-hidden/`display:none`/`opacity:0` selection, zero-size viewport, multi-video selection (largest visible wins), no event blocking, single listener per script execution, `defineProperty` production path + failure fallback + partial-failure logging, all `startupQuality` cases, `doOnlySetting` mode, zero-video pages, `play()` returning `undefined`, a rejected `play()` Promise, `play()` throwing synchronously, `getComputedStyle()` throwing, single `getBoundingClientRect()` read per candidate, rects without `bottom`/`right`, the `checkVisibility` fast path, `checkVisibility` receiving `contentVisibilityAuto`, `checkVisibility` rejecting the wider option set and retrying minimally, `checkVisibility` throwing, and `opacity: 0.000`.
 
 > The userscript is designed to run once per document load (it is injected once at `document-start`). The listener test asserts one registration per script execution, not protection against double injection.
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitch - Disable automatic video downscale
 // @namespace    CommanderRoot
-// @version      1.4.6
+// @version      1.4.7
 // @description  Disables the automatic downscaling of Twitch streams while tabbed away
 // @author       Taizun, CommanderRoot, SkeletonTM
 // @match        https://www.twitch.tv/*
@@ -37,7 +37,13 @@ const startupQuality = 'source'; // Quality to set on page load: 'source' | 'bes
 // Each property is applied independently so a failure in one does not leave
 // the rest partially applied, and the applied value is verified before the
 // property is considered frozen. No events are blocked and no focus APIs are
-// touched, so other scripts and extensions are unaffected.
+// touched. The getters live on Document.prototype, so the forced "visible"
+// state is not private to this script: every script in the same page realm
+// that reads document.hidden / document.visibilityState sees it too. Whether
+// other extensions are affected depends on their isolation world - an
+// isolated-world userscript (Chrome/Tampermonkey default) patches its own
+// copy of Document.prototype, a page-context one (@grant none on Firefox)
+// patches the real one.
 function freezeVisibility() {
   const props = [
     ['visibilityState', 'visible'],
@@ -91,13 +97,20 @@ function isActuallyVisible(v, rect) {
   if (vh > 0 && rect.top >= vh) return false;
   if (vw > 0 && rect.left >= vw) return false;
   // Native fast path (Chrome 105+/Firefox 106+/Safari 17+): checkVisibility
-  // also sees display:none / visibility:hidden on ancestors and accounts for
-  // content-visibility:auto, which getComputedStyle on the element cannot.
-  // Fall back to getComputedStyle when the method is absent or throws.
+  // also sees display:none / visibility:hidden on ancestors, which
+  // getComputedStyle on the element cannot. content-visibility:auto subtrees
+  // are covered only when the separate contentVisibilityAuto switch is passed
+  // - it defaults to false, so it is requested explicitly. Engines that throw
+  // on the wider option set are retried with the minimal one, and a throwing
+  // implementation falls through to getComputedStyle.
   if (typeof v.checkVisibility === 'function') {
     try {
-      return v.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
-    } catch (e) { /* non-standard environment: fall through */ }
+      return v.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true });
+    } catch (e) {
+      try {
+        return v.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+      } catch (e2) { /* non-standard environment: fall through */ }
+    }
   }
   // getComputedStyle is guarded: a patched or non-standard environment may
   // throw, and a failed style read must not break the visibility listener.
