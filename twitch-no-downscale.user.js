@@ -40,10 +40,14 @@ const startupQuality = 'source'; // Quality to set on page load: 'source' | 'bes
 // touched. The getters live on Document.prototype, so the forced "visible"
 // state is not private to this script: every script in the same page realm
 // that reads document.hidden / document.visibilityState sees it too. Whether
-// other extensions are affected depends on their isolation world - an
-// isolated-world userscript (Chrome/Tampermonkey default) patches its own
-// copy of Document.prototype, a page-context one (@grant none on Firefox)
-// patches the real one.
+// other extensions are affected depends on the execution world the script is
+// injected into - a property of the userscript manager, its version and
+// settings plus any CSP-driven injection fallback, not of the browser alone.
+// An isolated world patches its own copy of Document.prototype; a page-context
+// (MAIN_WORLD) injection patches the real one, so page scripts see it too.
+// Tampermonkey, for example, documents `raw` (MAIN_WORLD) as the default when
+// @sandbox is omitted, falling back to other enabled sandboxes when page-context
+// injection is blocked - so check your manager's setting rather than assuming.
 function freezeVisibility() {
   const props = [
     ['visibilityState', 'visible'],

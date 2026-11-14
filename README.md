@@ -27,6 +27,7 @@ It also writes a quality hint to `localStorage` once per page load.
 - **Isolation wording made manager-specific** - "Chrome/Tampermonkey default = isolated, Firefox `@grant none` = page context" was wrong: Tampermonkey documents `raw` (`MAIN_WORLD`) as the default when `@sandbox` is omitted, with fallbacks when injection is blocked. README now points at the manager's sandbox/injection setting instead of naming browsers
 - **Rejected-Promise test now asserts the handler** - the old test only checked that a Promise came back. It now uses a controlled thenable and asserts `.catch()` was attached, and the runner sets `process.exitCode` instead of calling `process.exit()` so a genuinely unhandled rejection crashes the run
 - **Tests: 35 → 37** - added "engines that silently ignore the option are not retried" and the handler-attachment assertion
+- **Source comment and v1.4.5 history aligned** - the comment above `freezeVisibility()` no longer names browser-based world defaults and now matches the README; the v1.4.5 changelog entry keeps its original account, with an explicit correction that its option set did not request `contentVisibilityAuto` (and that the Safari floor is 17.4)
 
 ### v1.4.7
 - **`contentVisibilityAuto: true`** - the `checkVisibility()` fast path now requests the option its comment always claimed, so elements inside skipped `content-visibility: auto` subtrees are treated as not visible. Engines that reject the wider option set are retried with the minimal set before falling back to `getComputedStyle`
