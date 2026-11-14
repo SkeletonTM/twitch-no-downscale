@@ -1,5 +1,12 @@
 # Changelog
 
+### v1.4.8
+- **Split the support floors** - `checkVisibility()`: Chrome 105 / Firefox 106 / Safari 17.4. `contentVisibilityAuto` option: Chrome 121 / Firefox 122 / Safari 17.4 (MDN browser-compat-data). The comment claimed "Chrome 105+/Firefox 106+/Safari 17+" for both and Safari 17 is not even the base-method floor
+- **Retry is not feature detection** - engines between the floors keep the method and drop the unknown dictionary member silently (Web IDL conversion does not throw), so the `catch`-retry stays only as a rescue for non-standard throwers. The missing `content-visibility: auto` filter on those versions is documented as a limitation
+- **Isolation wording corrected** - Tampermonkey documents `raw` (`MAIN_WORLD`) as the default when `@sandbox` is omitted, with fallbacks when `MAIN_WORLD` injection is blocked, so "Chrome/Tampermonkey default = isolated" and "Firefox + `@grant none` = page context" were wrong. README now defers to the manager's sandbox/injection setting
+- **Test 11b made meaningful** - it now uses a controlled thenable and asserts that `.catch()` was attached to the returned promise; the runner sets `process.exitCode` instead of calling `process.exit()`, so a missing handler would surface as an unhandled rejection instead of being cut off by an immediate exit
+- **Tests: 35 → 37** - added "engines that silently ignore the option are not retried" (3q) and the handler-attachment assertion (11b); the real rejected-Promise case moved to 11c
+
 ### v1.4.7
 - **`contentVisibilityAuto: true`** - the `checkVisibility()` fast path now passes the option its comment claimed. `contentVisibilityAuto` is a separate switch that defaults to `false`, so skipped `content-visibility: auto` subtrees were previously treated as visible. A throwing wider option set is retried with the minimal set before the `getComputedStyle` fallback
 - **Legacy `play()` mock fixed** - `makeVideo()` used `opts.playResult !== undefined`, which converted an explicit `undefined` into `Promise.resolve()`, so the "play() returns undefined" case was never exercised. The mock now uses `Object.hasOwn` and records the return value; the test asserts it really is `undefined`

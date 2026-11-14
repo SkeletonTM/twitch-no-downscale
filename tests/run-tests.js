@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Tests for twitch-no-downscale.user.js (v1.4.7)
+ * Tests for twitch-no-downscale.user.js (v1.4.8)
  * Pure Node, no dependencies. Runs the userscript body inside a VM sandbox
  * with mocked DOM/Window and asserts behaviour.
  */
@@ -532,6 +532,30 @@ test('3p. checkVisibility rejecting the wider option set retries minimally', () 
   assert(video.playCalls.length === 1, 'element must still be selected after the retry');
 });
 
+// 3q. Engines between the two support floors (Chrome 105-120 / Firefox 106-121)
+// have the method but silently drop the unknown contentVisibilityAuto member
+// during Web IDL dictionary conversion. That cannot be detected from script
+// code, so the call must succeed in one go: no retry, no throw. The missing
+// content-visibility:auto filtering is a documented limitation, not a bug we
+// can work around here.
+test('3q. engines that silently ignore the option are not retried', () => {
+  let calls = 0;
+  const video = {
+    id: 'main', paused: false, ended: false, readyState: 4,
+    playCalls: [],
+    rect: { width: 1280, height: 720, top: 0, left: 0 },
+    getBoundingClientRect() { return this.rect; },
+    checkVisibility() { calls += 1; return true; },
+    play() { this.playCalls.push(this.id); return Promise.resolve(); },
+  };
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
+  const consoleMock = makeConsole();
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc);
+  assert(calls === 1, 'checkVisibility must be called exactly once, got ' + calls);
+  assert(video.playCalls.length === 1, 'element must still be selected on such engines');
+});
 // 4. stopImmediatePropagation must NOT be used (no global event blocking).
 test('4. no stopImmediatePropagation on visibilitychange (incl. repeated calls)', () => {
   const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 } });
@@ -755,8 +779,28 @@ test('10. play() returning undefined does not throw', () => {
     'play() must genuinely return undefined (hasOwn path), got ' + String(video.playReturns[0]));
 });
 
-// 11b. Promise-returning play() path still resolves/consumes the rejection.
-test('11b. play() returning a rejected Promise does not throw', () => {
+// 11b. play() returning a thenable: the rejection handler must actually be
+// attached. A controlled thenable makes the assertion deterministic instead of
+// hoping an unhandled rejection would surface.
+test('11b. play() rejection handler is attached to the returned promise', () => {
+  let handler = null;
+  const thenable = { then() {}, catch(fn) { handler = fn; return this; } };
+  const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 }, playResult: thenable });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([video], ctor);
+  const consoleMock = makeConsole();
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
+  triggerVisibilityChange(doc);
+  assert(video.playCalls.length === 1, 'play() must be called');
+  assert(video.playReturns[0] === thenable, 'mock must return the thenable');
+  assert(typeof handler === 'function', 'a rejection handler must be attached to the returned promise');
+  handler(new Error('autoplay blocked')); // must swallow, not rethrow
+});
+
+// 11c. End-to-end with a real rejected Promise: the runner must survive it.
+// (The runner sets process.exitCode instead of calling process.exit(), so a
+// missing .catch() would crash the run as an unhandled rejection.)
+test('11c. real rejected Promise from play() is consumed', () => {
   const video = makeVideo({
     id: 'main', paused: false, rect: { width: 640, height: 360 },
     playResult: Promise.reject(new Error('autoplay blocked')),
@@ -773,4 +817,8 @@ test('11b. play() returning a rejected Promise does not throw', () => {
 // ---- summary -----------------------------------------------------------
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
-process.exit(fail === 0 ? 0 : 1);
+// Set exitCode instead of calling process.exit(): an immediate exit can tear
+// the loop down before an unhandled rejection is reported, which would let a
+// missing .catch() in the script slip through. Node >= 15 turns an unhandled
+// rejection into an uncaught exception, so the run fails loudly.
+process.exitCode = fail === 0 ? 0 : 1;

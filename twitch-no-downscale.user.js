@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitch - Disable automatic video downscale
 // @namespace    CommanderRoot
-// @version      1.4.7
+// @version      1.4.8
 // @description  Disables the automatic downscaling of Twitch streams while tabbed away
 // @author       Taizun, CommanderRoot, SkeletonTM
 // @match        https://www.twitch.tv/*
@@ -96,13 +96,15 @@ function isActuallyVisible(v, rect) {
   // viewport actually has a size.
   if (vh > 0 && rect.top >= vh) return false;
   if (vw > 0 && rect.left >= vw) return false;
-  // Native fast path (Chrome 105+/Firefox 106+/Safari 17+): checkVisibility
-  // also sees display:none / visibility:hidden on ancestors, which
-  // getComputedStyle on the element cannot. content-visibility:auto subtrees
-  // are covered only when the separate contentVisibilityAuto switch is passed
-  // - it defaults to false, so it is requested explicitly. Engines that throw
-  // on the wider option set are retried with the minimal one, and a throwing
-  // implementation falls through to getComputedStyle.
+  // Native fast path. Support floors differ and are quoted separately:
+  //   checkVisibility()                 Chrome 105 / Firefox 106 / Safari 17.4
+  //   contentVisibilityAuto option      Chrome 121 / Firefox 122 / Safari 17.4
+  // (MDN browser-compat-data, api/Element.json.) On engines between the two
+  // floors the method exists and the unknown dictionary member is silently
+  // dropped by Web IDL conversion - it does not throw - so the retry below is
+  // NOT feature detection: it only rescues non-standard implementations that
+  // reject the wider option set by throwing. Older engines simply do not get
+  // the content-visibility:auto check; that is a documented limitation.
   if (typeof v.checkVisibility === 'function') {
     try {
       return v.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true });
