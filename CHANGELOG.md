@@ -1,5 +1,16 @@
 # Changelog
 
+### v1.4.9
+- **Paused videos no longer shadow a playing one** - `getVideo()` kept paused candidates and `playVideo()` then bailed on `video.paused`, so a large paused `<video>` (ad player, stale element) suppressed the nudge for a smaller playing stream. Paused elements are now skipped during selection; a paused video is still never resumed, so manual pause stays preserved. Verified by a probe and test `3v`
+- **Full vs partial freeze failure** - the warning said "partially failed" even when all four properties failed. It now says `visibility freeze failed` when nothing was frozen and `partially failed` otherwise
+- **"Never leaves the page half-frozen" was false** - properties are applied independently, so one can fail while others stay frozen. README "How it works" and the `freezeVisibility()` comment now say exactly that
+- **Read-back now has teeth** - replacing both `ok = (document[name] === value)` with `ok = true` used to keep the suite green. Test `6d` shadows the prototype getter with a non-configurable own `hidden`, so a silently ignored define is caught and reported
+- **Single-candidate viewport tests** - deleting the `width/height`, `top >= innerHeight`, `left >= innerWidth` or `left + width <= 0` guards used to leave 37/37 green, because other fixtures masked them. Tests `3r`-`3u` each fail when their own guard is removed (the 0x0 case is offset from the origin, otherwise line 97 hides it)
+- **Vacuous assertion removed** - test 9 asserted `true`; it now counts `getElementsByTagName` calls
+- **Listener wording** - the script registers one nudge handler for three event types (three listeners); comments and README said "one listener per script execution"
+- **CI added** - GitHub Actions runs `node --check` and the suite on Node 20, 22 and 24 for pushes and PRs
+- **Tests: 37 → 43**
+
 ### v1.4.8
 - **Split the support floors** - `checkVisibility()`: Chrome 105 / Firefox 106 / Safari 17.4. `contentVisibilityAuto` option: Chrome 121 / Firefox 122 / Safari 17.4 (MDN browser-compat-data). The comment claimed "Chrome 105+/Firefox 106+/Safari 17+" for both and Safari 17 is not even the base-method floor
 - **Retry is not feature detection** - engines between the floors keep the method and drop the unknown dictionary member silently (Web IDL conversion does not throw), so the `catch`-retry stays only as a rescue for non-standard throwers. The missing `content-visibility: auto` filter on those versions is documented as a limitation
@@ -51,8 +62,8 @@
 - **Best-effort active player selection** — the active `<video>` is picked by visibility and playable state (`readyState > 0`, not `ended`), largest visible element wins; `videos[0]` is no longer trusted blindly (ads, stale elements, hidden previews). This is a heuristic, not a guarantee: when an ad and the stream are visible at the same time, the largest element wins and the main stream is not guaranteed to be chosen
 - **No more `stopImmediatePropagation()`** — the global capture-phase event blocking is gone; other scripts and extensions receive `visibilitychange` normally (the freeze alone prevents downscale)
 - **Removed `hasFocus()` override** — the override was removed because it affected the whole page and its necessity for downscale prevention was not established
-- **Independent `defineProperty`** — each visibility property is applied and verified separately, so a failure in one does not leave a partially applied config; partial failure is logged
-- **Optimizations** — `getVideo()` is queried once per event, `Math.floor(Date.now())` dropped (`Date.now()` is already an integer), no polling, one listener per script execution
+- **Independent `defineProperty`** — each visibility property is applied and verified separately, so a failure in one does not leave a partially applied config; partial failure is logged *(__Correction, v1.4.9: a single failure does leave the other properties applied - the config **is** partially applied in that case, and is logged as `partially failed`. What the code does guarantee is a read-back of each applied value and a log line naming the properties that failed.__)*
+- **Optimizations** — `getVideo()` is queried once per event, `Math.floor(Date.now())` dropped (`Date.now()` is already an integer), no polling, one listener per script execution *(__Correction, v1.4.9: one nudge handler, registered for three event types - `visibilitychange`, `webkitvisibilitychange`, `resume` - so three listeners per execution.__)*
 
 ### v1.3.3
 - **Removed SPA re-apply** — quality is set once on page load only, so manual quality selection is never overwritten

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Tests for twitch-no-downscale.user.js (v1.4.8)
+ * Tests for twitch-no-downscale.user.js (v1.4.9)
  * Pure Node, no dependencies. Runs the userscript body inside a VM sandbox
  * with mocked DOM/Window and asserts behaviour.
  */
@@ -556,6 +556,71 @@ test('3q. engines that silently ignore the option are not retried', () => {
   assert(calls === 1, 'checkVisibility must be called exactly once, got ' + calls);
   assert(video.playCalls.length === 1, 'element must still be selected on such engines');
 });
+// 3r. A zero-size video alone on the page must not be nudged (line 92: the
+// width/height guard). The rect is offset from the origin on purpose: a 0x0
+// rect at (0,0) is also rejected by the "fully above/left" check on line 97,
+// which would hide a missing width/height guard. With a second video present
+// the larger-area race hides the predicate too, so the single-candidate,
+// offset case is the only real probe.
+test('3r. a single zero-size video is not nudged', () => {
+  const v = makeVideo({ id: 'zero', paused: false, rect: { width: 0, height: 0, top: 100, left: 100 } });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([v], ctor);
+  const win = makeWindow(makeStorage(), { innerWidth: 1600, innerHeight: 900 });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: makeConsole() });
+  triggerVisibilityChange(doc);
+  assert(v.playCalls.length === 0, 'zero-size video must not be nudged');
+});
+
+// 3s. A video whose top edge is below the viewport must be skipped
+// (line 101: the far-edge check against innerHeight).
+test('3s. a video below the viewport is not nudged', () => {
+  const v = makeVideo({ id: 'below', paused: false, rect: { width: 640, height: 360, top: 1200 } });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([v], ctor);
+  const win = makeWindow(makeStorage(), { innerWidth: 1600, innerHeight: 900 });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: makeConsole() });
+  triggerVisibilityChange(doc);
+  assert(v.playCalls.length === 0, 'video starting below the viewport must not be nudged');
+});
+
+// 3t. A video whose left edge is right of the viewport must be skipped
+// (line 102: the far-edge check against innerWidth).
+test('3t. a video right of the viewport is not nudged', () => {
+  const v = makeVideo({ id: 'right', paused: false, rect: { width: 640, height: 360, left: 2000 } });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([v], ctor);
+  const win = makeWindow(makeStorage(), { innerWidth: 1600, innerHeight: 900 });
+  runScript(BODY, { document: doc, window: win, Document: ctor, console: makeConsole() });
+  triggerVisibilityChange(doc);
+  assert(v.playCalls.length === 0, 'video starting right of the viewport must not be nudged');
+});
+
+// 3u. A video entirely left of the viewport must be skipped (line 97, left
+// half: rect.left + rect.width <= 0); 3j only covers the top half.
+test('3u. a video left of the viewport is not nudged', () => {
+  const v = makeVideo({ id: 'left', paused: false, rect: { width: 640, height: 360, left: -2000 } });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([v], ctor);
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: makeConsole() });
+  triggerVisibilityChange(doc);
+  assert(v.playCalls.length === 0, 'video entirely left of the viewport must not be nudged');
+});
+
+// 3v. A large paused video must not shadow a smaller playing one: the paused
+// candidate is skipped inside getVideo(), so the playing video still gets the
+// nudge, and the paused one is never resumed.
+test('3v. a paused larger video does not shadow a playing one', () => {
+  const big = makeVideo({ id: 'bigPaused', paused: true, rect: { width: 1280, height: 720 } });
+  const small = makeVideo({ id: 'smallPlaying', paused: false, rect: { width: 640, height: 360 } });
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([big, small], ctor);
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: makeConsole() });
+  triggerVisibilityChange(doc);
+  assert(small.playCalls.length === 1, 'the playing video must be nudged');
+  assert(big.playCalls.length === 0, 'the paused video must never be resumed');
+});
+
 // 4. stopImmediatePropagation must NOT be used (no global event blocking).
 test('4. no stopImmediatePropagation on visibilitychange (incl. repeated calls)', () => {
   const video = makeVideo({ id: 'main', paused: false, rect: { width: 640, height: 360 } });
@@ -635,8 +700,9 @@ test('6b. full freeze failure logged, script does not crash', () => {
     Document: ctor,
     console: consoleMock,
   });
-  assert(consoleMock.warns.length === 1, 'expected partial-failure warning, got: ' + consoleMock.warns);
-  assert(/partially failed/.test(consoleMock.warns[0]), 'warning must mention partial failure');
+  assert(consoleMock.warns.length === 1, 'expected a warning, got: ' + consoleMock.warns);
+  assert(/visibility freeze failed/.test(consoleMock.warns[0]), 'warning must say the freeze failed');
+  assert(!/partially/.test(consoleMock.warns[0]), 'a total failure must not be reported as partial');
 });
 
 // 6c. PRODUCTION PATH: the mock document inherits from Document.prototype,
@@ -664,6 +730,25 @@ test('6c. prototype freeze succeeds (production path, no own props)', () => {
   doc.hidden = true; // must not throw and must not change the value
   assert(doc.hidden === false, 'hidden must still read false after a write attempt');
   assert(consoleMock.warns.length === 0, 'no warning when prototype path succeeds');
+});
+
+// 6d. The read-back after defineProperty is what tells a silent no-op apart
+// from a real freeze: the prototype define succeeds here, but an own
+// non-configurable `hidden` on the instance shadows it, so document.hidden
+// stays true. The script must notice, try the instance path, fail it too, and
+// report a PARTIAL failure naming `hidden` - while the other three properties
+// still get frozen.
+test('6d. silent no-op define is caught by the read-back, partial failure logged', () => {
+  const ctor = makeDocumentCtor();
+  const doc = makeDocument([], ctor);
+  Object.defineProperty(doc, 'hidden', { value: true, configurable: false, enumerable: true, writable: false });
+  const consoleMock = makeConsole();
+  runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
+  assert(doc.hidden === true, 'sanity: the own non-configurable hidden must survive the freeze attempt');
+  assert(doc.visibilityState === 'visible', 'other properties must still end up frozen');
+  assert(consoleMock.warns.length === 1, 'expected exactly one warning, got: ' + consoleMock.warns);
+  assert(/partially failed/.test(consoleMock.warns[0]), 'warning must say partial failure');
+  assert(/hidden/.test(consoleMock.warns[0]), 'warning must name the property that failed');
 });
 
 // 7. localStorage quality keys.
@@ -756,14 +841,18 @@ test('8. doOnlySetting=true: no freeze, quality keys still written', () => {
   assert(doc.listeners.filter(x => x.type === 'visibilitychange').length === 0, 'no visibilitychange listener when doOnlySetting=true');
 });
 
-// 9. Zero videos on the page: the visibilitychange listener must not throw.
+// 9. Zero videos on the page: the visibilitychange listener must not throw,
+// and it must still query the DOM (a listener that returns early without
+// looking would also "not throw", so the query itself is asserted).
 test('9. no videos on page — listener does not throw', () => {
   const ctor = makeDocumentCtor();
   const doc = makeDocument([], ctor);
+  let queries = 0;
+  doc.getElementsByTagName = function (tag) { queries += 1; return []; };
   const consoleMock = makeConsole();
   runScript(BODY, { document: doc, window: makeWindow(makeStorage()), Document: ctor, console: consoleMock });
   triggerVisibilityChange(doc);
-  assert(true, 'listener ran without throwing when there are no videos');
+  assert(queries === 1, 'listener must query the DOM once per event, got ' + queries);
 });
 
 // 10. Legacy engine: play() returns undefined, not a Promise - must not throw.

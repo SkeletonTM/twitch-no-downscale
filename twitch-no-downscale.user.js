@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitch - Disable automatic video downscale
 // @namespace    CommanderRoot
-// @version      1.4.8
+// @version      1.4.9
 // @description  Disables the automatic downscaling of Twitch streams while tabbed away
 // @author       Taizun, CommanderRoot, SkeletonTM
 // @match        https://www.twitch.tv/*
@@ -34,9 +34,11 @@ const startupQuality = 'source'; // Quality to set on page load: 'source' | 'bes
 // This is the core downscale-prevention mechanism: Twitch's background
 // quality-drop logic keys off document.hidden / document.visibilityState.
 //
-// Each property is applied independently so a failure in one does not leave
-// the rest partially applied, and the applied value is verified before the
-// property is considered frozen. No events are blocked and no focus APIs are
+// Each property is applied independently, so one failure does not stop the
+// rest: the page can end up with some properties frozen and others not, and
+// that mixture is logged rather than silently accepted. The value is read back
+// after defineProperty, so a define that is silently ignored is not reported
+// as success. No events are blocked and no focus APIs are
 // touched. The getters live on Document.prototype, so the forced "visible"
 // state is not private to this script: every script in the same page realm
 // that reads document.hidden / document.visibilityState sees it too. Whether
@@ -79,7 +81,10 @@ function freezeVisibility() {
   }
 
   if (failed.length) {
-    console.warn('[twitch-no-downscale] visibility freeze partially failed for: ' + failed.join(', '));
+    // Distinguish "some properties frozen, some not" from "nothing was frozen":
+    // both are logged, but they mean different things to whoever reads the log.
+    const scope = failed.length === props.length ? 'failed' : 'partially failed';
+    console.warn('[twitch-no-downscale] visibility freeze ' + scope + ' for: ' + failed.join(', '));
   }
 }
 
@@ -133,7 +138,7 @@ function isActuallyVisible(v, rect) {
 // Pick the main player <video>. A Twitch page can contain several video
 // elements (ad player, stale element left over from a channel switch, hidden
 // preview), and document order is not a reliable signal, so the element that
-// is actually visible on screen and has a playable stream wins. No fragile
+// is actually visible on screen and already playing wins. No fragile
 // CSS classes are used: Twitch does not expose a stable selector for the
 // main player. Compromise: in the rare case where an ad and the stream are
 // both visible at once, the larger element (the stream) wins.
@@ -143,7 +148,11 @@ function getVideo() {
   let bestArea = -1;
   for (let i = 0; i < videos.length; i++) {
     const v = videos[i];
-    if (v.ended || v.readyState === 0) continue;
+    // Paused candidates are skipped here, not later: playVideo() never resumes
+    // a paused video (manual pause must survive), so keeping a paused element
+    // in the race would let a large paused video shadow a smaller playing one
+    // and suppress the nudge for the whole page.
+    if (v.paused || v.ended || v.readyState === 0) continue;
     const rect = v.getBoundingClientRect();
     if (!isActuallyVisible(v, rect)) continue;
     const area = rect.width * rect.height;
@@ -177,8 +186,9 @@ function playVideo() {
 }
 
 // The script is designed to run once per document load (injected once at
-// document-start by the userscript manager), so exactly one listener is
-// registered per execution.
+// document-start by the userscript manager), so exactly one nudge handler is
+// registered per execution - attached to three event types below, which is
+// three listeners, one per event type.
 if (doOnlySetting === false) {
   freezeVisibility();
 
@@ -193,10 +203,11 @@ if (doOnlySetting === false) {
 }
 
 // Set quality once on page load. NOTE: as of 2026 the desktop Twitch player
-// (Amazon IVS) stores its quality preference under its own keys
-// (amazon_ivs_device_config_*, *_amazon_ivs_dc_player-web-v1_*) and does not
-// ship these legacy keys at all; writing them is harmless (Twitch leaves them
-// untouched) and older player builds still honour them. They are deliberately
+// (Amazon IVS) keeps its quality preference under its own keys
+// (amazon_ivs_device_config_*, *_amazon_ivs_dc_player-web-v1_*), so the legacy
+// keys below may not be read at all - that is unvalidated, see README "Known
+// limitations". Writing them is harmless (Twitch leaves them untouched) and
+// older player builds still honour them. They are deliberately
 // NOT re-applied on navigation: re-applying would overwrite the user's manual
 // quality choice.
 function setQualitySettings() {

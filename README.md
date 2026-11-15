@@ -1,6 +1,6 @@
 # Twitch - Disable automatic video downscale
 
-**v1.4.8** - Prevents Twitch from downscaling video when the tab is in the background.
+**v1.4.9** - Prevents Twitch from downscaling video when the tab is in the background.
 
 **[Install](https://raw.githubusercontent.com/SkeletonTM/twitch-no-downscale/main/twitch-no-downscale.user.js)**
 
@@ -14,13 +14,21 @@ This fork keeps the original script's `@name` and `@namespace`, so userscript ma
 
 ## How it works
 
-The script freezes the [Page Visibility API](https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API) (`document.hidden`, `document.webkitHidden`, `document.visibilityState`, `document.webkitVisibilityState`) so Twitch always believes the tab is visible and never drops the stream quality in the background. Each property is frozen independently with a verified fallback to the `document` instance, so a partial failure never leaves the page half-frozen and is always logged.
+The script freezes the [Page Visibility API](https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API) (`document.hidden`, `document.webkitHidden`, `document.visibilityState`, `document.webkitVisibilityState`) so Twitch always believes the tab is visible and never drops the stream quality in the background. Each property is applied and read back independently, with a fallback to the `document` instance. "Independently" means one property can fail while the others stay frozen - the page is not rolled back - and that mixture is reported in the console (`visibility freeze failed` when nothing could be frozen, `partially failed` otherwise).
 
 **This override is not private to the script.** The getters are installed on `Document.prototype`, so every script running in the same page realm reads the forced "visible" state too - `document.hidden` is `false` and `document.visibilityState` is `'visible'` for anyone who asks, including Twitch's own code and any other page script. Events are *not* blocked or suppressed: `visibilitychange` still fires normally and reaches all listeners. Whether *other extensions* see the override depends on the execution world the script ends up in, which is a property of the manager and its settings, not of the browser alone (see Known limitations).
 
 It also writes a quality hint to `localStorage` once per page load.
 
 ## Changelog
+
+### v1.4.9
+- **Paused videos no longer shadow a playing one** - a large paused `<video>` could win the "largest visible" race and then be skipped by the "never resume a paused video" rule, silently disabling the nudge for a smaller playing stream. `getVideo()` now skips paused candidates; manual pause is still never overridden
+- **Freeze warnings tell the truth** - `visibility freeze failed` when nothing was frozen, `partially failed` when only some properties failed (it always said "partially")
+- **"Never leaves the page half-frozen" removed** - properties are applied independently, so a partial state is possible; README and the code comment now describe it that way
+- **Tests: 37 → 43** - four single-candidate viewport/zero-size cases (each fails when its guard is deleted), a paused-shadowing case, and a read-back case that catches a `defineProperty` that silently does nothing; the vacuous `assert(true)` in the zero-video test replaced by a DOM-query count
+- **Listener wording** - one nudge handler registered for three event types, not "one listener"
+- **CI** - GitHub Actions runs `node --check` and the suite on Node 20/22/24 for pushes and PRs
 
 ### v1.4.8
 - **Support floors corrected and split** - `checkVisibility()` is Chrome 105 / Firefox 106 / Safari 17.4, the `contentVisibilityAuto` option is Chrome 121 / Firefox 122 / Safari 17.4; the code comment used to blur them into one claim with a wrong Safari version. Engines between the floors drop the unknown option silently, so the `catch`-retry is documented as a rescue for non-standard implementations, not as feature detection, and the missing `content-visibility: auto` filter is listed as a limitation
@@ -62,7 +70,7 @@ const startupQuality = 'source';  // quality on page load; '' = don't touch qual
 
 ## Known limitations
 
-- **Video selection is a best-effort heuristic:** the active element is chosen by viewport intersection, computed style (`display`/`visibility`/`opacity`), readiness (`readyState > 0`, not `ended`), and largest visible area. This is better than `videos[0]` but does not guarantee the main stream is chosen when an ad and the stream are visible simultaneously.
+- **Video selection is a best-effort heuristic:** the active element is chosen by viewport intersection, computed style (`display`/`visibility`/`opacity`), readiness (`readyState > 0`, not `ended`), and it must already be playing - a paused element never wins, so a large paused video cannot shadow a smaller playing one. Largest visible area decides between the survivors. This is better than `videos[0]` but does not guarantee the main stream is chosen when an ad and the stream are visible simultaneously.
 - **The Page Visibility override is page-wide, by design:** `document.hidden` / `document.visibilityState` (and the `webkit` pairs) are redefined on `Document.prototype`, so *any* script in that page realm that reads them sees "visible" even when the tab is in the background. Event dispatch is untouched - `visibilitychange` still fires and no listener is blocked.
 - **Who else sees the override depends on the manager, not the browser:** the script has no `@sandbox` directive, so the effective world is decided by the userscript manager, its version and settings, plus any CSP-driven injection fallback. Tampermonkey documents `raw` (page context, `MAIN_WORLD`) as the default when `@sandbox` is omitted and falls back to other enabled sandboxes when `MAIN_WORLD` injection is blocked; other managers and other settings may inject into an isolated world instead. Check your manager's sandbox/injection setting if you need to know whether page scripts observe the freeze.
 - **`content-visibility: auto` filtering needs a newer engine than the rest of the check:** `Element.checkVisibility()` exists from Chrome 105 / Firefox 106 / Safari 17.4, but its `contentVisibilityAuto` option only from Chrome 121 / Firefox 122 / Safari 17.4 (MDN browser-compat-data). On engines between those floors the method silently drops the unknown option (Web IDL conversion does not throw), so a skipped `content-visibility: auto` subtree can still be mistaken for a visible player. The thrown-option retry in the code only helps non-standard implementations; it is not feature detection.
@@ -78,9 +86,11 @@ Automated behaviour tests live in [`tests/run-tests.js`](tests/run-tests.js) (pu
 node tests/run-tests.js
 ```
 
-Covers: top-frame guard, manual-pause preservation, ended/uninitialized/hidden/off-viewport video skipping, CSS-hidden/`display:none`/`opacity:0` selection, zero-size viewport, multi-video selection (largest visible wins), no event blocking, single listener per script execution, `defineProperty` production path + failure fallback + partial-failure logging, all `startupQuality` cases, `doOnlySetting` mode, zero-video pages, `play()` returning `undefined`, an attached `play()` rejection handler, a real rejected `play()` Promise, `play()` throwing synchronously, `getComputedStyle()` throwing, single `getBoundingClientRect()` read per candidate, rects without `bottom`/`right`, the `checkVisibility` fast path, `checkVisibility` receiving `contentVisibilityAuto`, `checkVisibility` rejecting the wider option set and retrying minimally, `checkVisibility` silently ignoring the option (older engines, no retry), `checkVisibility` throwing, and `opacity: 0.000`.
+Covers: top-frame guard, manual-pause preservation, a large paused video not shadowing a playing one, ended/uninitialized/hidden/off-viewport video skipping (a single zero-size candidate, and candidates entirely above, below, left or right of the viewport), CSS-hidden/`display:none`/`opacity:0` selection, zero-size viewport, multi-video selection (largest visible wins), no event blocking, exactly one nudge handler per script execution (three listeners, one per event type), `defineProperty` production path + failure fallback + full and partial-failure logging + the read-back that catches a silently ignored define, all `startupQuality` cases, `doOnlySetting` mode, a DOM query on zero-video pages, `play()` returning `undefined`, an attached `play()` rejection handler, a real rejected `play()` Promise, `play()` throwing synchronously, `getComputedStyle()` throwing, single `getBoundingClientRect()` read per candidate, rects without `bottom`/`right`, the `checkVisibility` fast path, `checkVisibility` receiving `contentVisibilityAuto`, `checkVisibility` rejecting the wider option set and retrying minimally, `checkVisibility` silently ignoring the option (older engines, no retry), `checkVisibility` throwing, and `opacity: 0.000`.
 
-> The userscript is designed to run once per document load (it is injected once at `document-start`). The listener test asserts one registration per script execution, not protection against double injection.
+CI runs the same suite on Node 20, 22 and 24 (`.github/workflows/tests.yml`).
+
+> The userscript is designed to run once per document load (it is injected once at `document-start`). The listener test asserts three registrations - one per event type - per script execution, not protection against double injection.
 
 ## License
 
