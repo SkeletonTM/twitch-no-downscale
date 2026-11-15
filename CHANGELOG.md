@@ -8,7 +8,6 @@
 - **Single-candidate viewport tests** - deleting the `width/height`, `top >= innerHeight`, `left >= innerWidth` or `left + width <= 0` guards used to leave 37/37 green, because other fixtures masked them. Tests `3r`-`3u` each fail when their own guard is removed (the 0x0 case is offset from the origin, otherwise line 97 hides it)
 - **Vacuous assertion removed** - test 9 asserted `true`; it now counts `getElementsByTagName` calls
 - **Listener wording** - the script registers one nudge handler for three event types (three listeners); comments and README said "one listener per script execution"
-- **CI added** - GitHub Actions runs `node --check` and the suite on Node 20, 22 and 24 for pushes and PRs
 - **Tests: 37 → 43**
 
 ### v1.4.8

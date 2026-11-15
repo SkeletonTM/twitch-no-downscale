@@ -28,7 +28,6 @@ It also writes a quality hint to `localStorage` once per page load.
 - **"Never leaves the page half-frozen" removed** - properties are applied independently, so a partial state is possible; README and the code comment now describe it that way
 - **Tests: 37 → 43** - four single-candidate viewport/zero-size cases (each fails when its guard is deleted), a paused-shadowing case, and a read-back case that catches a `defineProperty` that silently does nothing; the vacuous `assert(true)` in the zero-video test replaced by a DOM-query count
 - **Listener wording** - one nudge handler registered for three event types, not "one listener"
-- **CI** - GitHub Actions runs `node --check` and the suite on Node 20/22/24 for pushes and PRs
 
 ### v1.4.8
 - **Support floors corrected and split** - `checkVisibility()` is Chrome 105 / Firefox 106 / Safari 17.4, the `contentVisibilityAuto` option is Chrome 121 / Firefox 122 / Safari 17.4; the code comment used to blur them into one claim with a wrong Safari version. Engines between the floors drop the unknown option silently, so the `catch`-retry is documented as a rescue for non-standard implementations, not as feature detection, and the missing `content-visibility: auto` filter is listed as a limitation
@@ -87,8 +86,6 @@ node tests/run-tests.js
 ```
 
 Covers: top-frame guard, manual-pause preservation, a large paused video not shadowing a playing one, ended/uninitialized/hidden/off-viewport video skipping (a single zero-size candidate, and candidates entirely above, below, left or right of the viewport), CSS-hidden/`display:none`/`opacity:0` selection, zero-size viewport, multi-video selection (largest visible wins), no event blocking, exactly one nudge handler per script execution (three listeners, one per event type), `defineProperty` production path + failure fallback + full and partial-failure logging + the read-back that catches a silently ignored define, all `startupQuality` cases, `doOnlySetting` mode, a DOM query on zero-video pages, `play()` returning `undefined`, an attached `play()` rejection handler, a real rejected `play()` Promise, `play()` throwing synchronously, `getComputedStyle()` throwing, single `getBoundingClientRect()` read per candidate, rects without `bottom`/`right`, the `checkVisibility` fast path, `checkVisibility` receiving `contentVisibilityAuto`, `checkVisibility` rejecting the wider option set and retrying minimally, `checkVisibility` silently ignoring the option (older engines, no retry), `checkVisibility` throwing, and `opacity: 0.000`.
-
-CI runs the same suite on Node 20, 22 and 24 (`.github/workflows/tests.yml`).
 
 > The userscript is designed to run once per document load (it is injected once at `document-start`). The listener test asserts three registrations - one per event type - per script execution, not protection against double injection.
 
